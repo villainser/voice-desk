@@ -39,6 +39,12 @@ func requestData(_ request: URLRequest) -> Data {
 @main
 struct CoreTests {
     static func main() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: Localizer.preferenceKey)
+        UserDefaults.standard.set("en", forKey: Localizer.preferenceKey)
+        defer {
+            if let previousLanguage { UserDefaults.standard.set(previousLanguage, forKey: Localizer.preferenceKey) }
+            else { UserDefaults.standard.removeObject(forKey: Localizer.preferenceKey) }
+        }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("folder-voice-tests-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -51,7 +57,7 @@ struct CoreTests {
             try check(parts.allSatisfy { !$0.isEmpty && $0.unicodeScalars.count <= 4000 }, "API chunk length")
         }
         try check(TextFiles.chunks("").isEmpty, "empty text")
-        ok("Długie teksty i Unicode: bez utraty znaków")
+        ok("Long text and Unicode preserve all characters")
 
         let input = root.appendingPathComponent("Zażółć. rozdział 01.TXT")
         let text = String(repeating: "To jest zdanie po polsku. ", count: 250)
@@ -70,7 +76,7 @@ struct CoreTests {
         try check(list.first { $0.url.lastPathComponent == "pusty.txt" }?.state == .invalid, "empty skipped")
         try check(list.first { $0.url.lastPathComponent == "katalog.txt" }?.state == .invalid, "directory skipped")
         try check(TextFiles.output(for: input).lastPathComponent == "Zażółć. rozdział 01.m4a", "same basename")
-        ok("Nazwy plików, TXT wielkimi literami, kodowania i puste pliki")
+        ok("Filenames, uppercase TXT, encodings, and empty files")
 
         // Twenty valid MPEG-1 Layer III silence frames, generated locally.
         // This exercises the actual MP3 decoder and AAC/M4A output path.
@@ -111,7 +117,7 @@ struct CoreTests {
         try check(MockAPI.calls == 2, "no automatic paid retry")
         try check(!FileManager.default.fileExists(atPath: TextFiles.output(for: input).path), "no partial final file")
         try check(requestTexts.joined() == text.trimmingCharacters(in: .whitespacesAndNewlines), "correct content sent")
-        ok("Błąd API zatrzymuje kolejkę, bez ponowienia i częściowego wyniku")
+        ok("API errors stop the queue without retries or partial output")
 
         MockAPI.handler = { _ in (200, audio) }
         let generated = try await BatchProcessor.process(item, settings: settings, client: client) { _, _, _ in }
@@ -121,7 +127,7 @@ struct CoreTests {
         let decoded = try AVAudioFile(forReading: out)
         let duration = Double(decoded.length) / decoded.processingFormat.sampleRate
         try check(abs(duration - 1.0) < 0.08, "both audio chunks joined in M4A: \(duration)")
-        ok("Wznowienie pobiera tylko brakującą część; poprawne audio M4A")
+        ok("Resume downloads only the missing segment and writes valid M4A")
 
         let before = try Data(contentsOf: out)
         let skipped = try await BatchProcessor.process(item, settings: settings, client: client) { _, _, _ in }
@@ -129,7 +135,7 @@ struct CoreTests {
         try check(try Data(contentsOf: out) == before, "existing output unchanged")
         list = try TextFiles.scan(root)
         try check(list.first { $0.url.lastPathComponent == input.lastPathComponent }?.state == .existing, "existing visible in scan")
-        ok("Ponowne uruchomienie nie nadpisuje nagrania i nie zużywa API")
+        ok("Rerunning preserves existing audio without API requests")
 
         let changing = root.appendingPathComponent("zmieniany.txt")
         try Data("Pierwotny tekst".utf8).write(to: changing)
@@ -138,11 +144,11 @@ struct CoreTests {
         do {
             _ = try await BatchProcessor.process(changedItem, settings: settings, client: client) { _, _, _ in }
             throw AppFailure("TEST FAILED: changed file accepted")
-        } catch { try check(error.localizedDescription.contains("zmienił"), "changed text detected") }
+        } catch { try check(error.localizedDescription.contains("changed"), "changed text detected") }
         try check(MockAPI.calls == 3, "changed file sends no text")
         try check(settings.cacheID(for: text) != GenerationSettings(voiceID: "Other", modelID: settings.modelID).cacheID(for: text), "cache depends on voice")
         try check(settings.cacheID(for: text) != GenerationSettings(voiceID: settings.voiceID, modelID: "eleven_v3").cacheID(for: text), "cache depends on model")
-        ok("Zmiany tekstu, głosu i modelu nie używają niewłaściwych części")
+        ok("Text, voice, and model changes invalidate mismatched cached segments")
 
         MockAPI.calls = 0
         MockAPI.handler = { req in
@@ -152,12 +158,12 @@ struct CoreTests {
         }
         let voices = try await client.voices()
         try check(voices.map(\.name) == ["Anna", "Beata"] && MockAPI.calls == 2, "voice pagination")
-        ok("Lista głosów obsługuje kolejne strony API")
+        ok("Account voices support API pagination")
 
         MockAPI.handler = { _ in (403, Data("{\"detail\":{\"message\":\"bad test-only-dummy-key\"}}".utf8)) }
         do { _ = try await client.voices(); throw AppFailure("TEST FAILED: 403 accepted") }
         catch { try check(!error.localizedDescription.contains("test-only-dummy-key"), "keys never shown in API errors") }
-        ok("Błąd autoryzacji nie ujawnia klucza")
+        ok("Authorization errors redact the API key")
 
         MockAPI.calls = 0
         MockAPI.handler = { _ in throw AppFailure("TEST FAILED: format conversion must stay offline") }
@@ -174,7 +180,7 @@ struct CoreTests {
         let wavFile = try AVAudioFile(forReading: item.output(.wav))
         try check(wavFile.fileFormat.settings[AVLinearPCMBitDepthKey] as? Int == 16, "16-bit PCM")
         try check(try Data(contentsOf: out) == before, "source M4A remains unchanged")
-        ok("Eksport MP3 i WAV działa lokalnie, bez API; czas i PCM poprawne")
+        ok("Local MP3 and WAV export preserves duration and valid PCM without API requests")
 
         let fragment = root.appendingPathComponent("fragment.mp3")
         try audio.write(to: fragment)
@@ -185,7 +191,7 @@ struct CoreTests {
         let copiedMP3 = root.appendingPathComponent("copied.mp3")
         try AudioFiles.merge([fragment], to: copiedMP3)
         try check(try Data(contentsOf: copiedMP3) == audio, "single API MP3 kept without re-encoding")
-        ok("Długie MP3 łączone enkoderem; pojedyncze MP3 bez dodatkowej kompresji")
+        ok("Multipart MP3 uses the encoder; single MP3 is copied without recompression")
 
         var expressive = settings
         expressive.expression.enabled = true
@@ -208,7 +214,7 @@ struct CoreTests {
             return (200, audio)
         }
         _ = try await client.speech(text: "Cześć!", settings: v4, previous: nil, next: nil)
-        ok("Ekspresja i znaczniki trafiają do API; parametry zależne od modelu")
+        ok("Expression and delivery tags reach the API with model-dependent parameters")
 
         let sourceFolder = root.appendingPathComponent("voice-input")
         try FileManager.default.createDirectory(at: sourceFolder, withIntermediateDirectories: true)
@@ -237,7 +243,7 @@ struct CoreTests {
         try check(try Data(contentsOf: source) == audio, "input unchanged")
         let repeatSTS = try await BatchProcessor.process(sourceItem, settings: sts, client: client) { _, _, _ in }
         try check(!repeatSTS && MockAPI.calls == 1, "no duplicate STS charge")
-        ok("Voice Changer: multipart, odszumianie, zapis WAV i ochrona źródła")
+        ok("Voice Changer multipart, noise removal, WAV export, and input protection")
 
         let inline = FileItem(url: root.appendingPathComponent("bez-pliku-txt.txt"), characters: 6, parts: 1,
             fingerprint: TextFiles.digest("Cześć!"), inlineText: "Cześć!")
@@ -250,7 +256,7 @@ struct CoreTests {
         _ = try await BatchProcessor.process(inline, settings: inlineSettings, client: client) { _, _, _ in }
         try check(AudioFiles.valid(inline.output(.mp3)), "typed text output")
         try check(!FileManager.default.fileExists(atPath: inline.url.path), "no unwanted TXT written")
-        ok("Wpisany tekst generowany bez pliku TXT i bez etapu podglądu")
+        ok("Typed text generates audio without a TXT file or preview generation")
         print("\(passed) test groups passed. No external API calls. No credits used.")
     }
 }

@@ -5,7 +5,7 @@ import Security
 
 struct AppFailure: LocalizedError {
     let message: String
-    var errorDescription: String? { message }
+    var errorDescription: String? { L(message) }
     init(_ message: String) { self.message = message }
 }
 
@@ -13,10 +13,10 @@ enum TextFiles {
     static func read(_ url: URL) throws -> String {
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true else {
-            throw AppFailure("Wybierz zwykły plik TXT, bez dowiązań.")
+            throw AppFailure("Choose a regular text file, not a symbolic link.")
         }
         guard (values.fileSize ?? 0) <= 10_000_000 else {
-            throw AppFailure("Plik przekracza 10 MB. Podziel go na mniejsze pliki TXT.")
+            throw AppFailure("Text files must be smaller than 10 MB.")
         }
         let data = try Data(contentsOf: url)
         let text: String?
@@ -25,9 +25,9 @@ enum TextFiles {
         } else {
             text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .windowsCP1250)
         }
-        guard var result = text else { throw AppFailure("Nie można odczytać tekstu. Zapisz TXT w UTF-8.") }
+        guard var result = text else { throw AppFailure("Could not read the text. Save the file as UTF-8.") }
         if result.hasPrefix("\u{FEFF}") { result.removeFirst() }
-        guard !result.contains("\0") else { throw AppFailure("Plik zawiera dane binarne. Zapisz tekst w UTF-8.") }
+        guard !result.contains("\0") else { throw AppFailure("The file contains binary data. Save the text as UTF-8.") }
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -77,14 +77,14 @@ enum TextFiles {
             var item = FileItem(url: url)
             let name = output(for: url).lastPathComponent.precomposedStringWithCanonicalMapping.lowercased()
             guard seen.insert(name).inserted else {
-                item.state = .invalid; item.detail = "Powtarzająca się nazwa wyjściowa"; return item
+                item.state = .invalid; item.detail = "Duplicate output filename"; return item
             }
             do {
                 let text = try read(url)
                 item.characters = text.unicodeScalars.count
                 item.fingerprint = digest(text)
                 item.parts = chunks(text).count
-                if text.isEmpty { item.state = .invalid; item.detail = "Pusty plik" }
+                if text.isEmpty { item.state = .invalid; item.detail = "Empty file" }
                 else { item.inspectOutput(format) }
             } catch { item.state = .invalid; item.detail = error.localizedDescription }
             return item
@@ -100,11 +100,14 @@ struct FileItem: Identifiable {
     var parts = 0
     var fingerprint = ""
     var state: FileState = .ready
-    var detail = "Gotowy"
+    var detail = "Ready"
     var inlineText: String?
     var isAudio = false
     var duration: Double = 0
+    var destinationFolder: URL?
+    var destinationIssue = false
     var outputBase: URL {
+        if let destinationFolder { return destinationFolder.appendingPathComponent(url.lastPathComponent).deletingPathExtension() }
         if isAudio {
             return url.deletingLastPathComponent().appendingPathComponent("Voice Changer", isDirectory: true)
                 .appendingPathComponent(url.lastPathComponent).deletingPathExtension()
@@ -113,13 +116,17 @@ struct FileItem: Identifiable {
     }
     func output(_ format: OutputFormat) -> URL { outputBase.appendingPathExtension(format.rawValue) }
     func existingAudio(except format: OutputFormat) -> URL? {
-        OutputFormat.allCases.filter { $0 != format }.map { output($0) }.first { AudioFiles.valid($0) }
+        OutputFormat.allCases.filter { $0 != format }.map { output($0) }.first { (!isAudio || $0.standardizedFileURL != url.standardizedFileURL) && AudioFiles.valid($0) }
     }
     mutating func inspectOutput(_ format: OutputFormat) {
+        if isAudio && output(format).standardizedFileURL == url.standardizedFileURL {
+            state = .invalid; destinationIssue = true
+            detail = L("Choose a destination different from the source recording."); return
+        }
         if FileManager.default.fileExists(atPath: output(format).path) {
-            state = .existing; detail = "\(format.label) już istnieje — pomijam"
+            state = .existing; detail = L("%@ already exists — skipping", format.label)
         } else if let other = existingAudio(except: format) {
-            detail = "Konwersja z \(other.pathExtension.uppercased()) · bez API"
+            detail = L("Convert from %@ · no API request", other.pathExtension.uppercased())
         }
     }
 }
@@ -130,7 +137,7 @@ enum OutputFormat: String, CaseIterable, Codable {
 enum InputMode: String, CaseIterable {
     case folder, text, changer
     var label: String {
-        switch self { case .folder: return "Folder TXT"; case .text: return "Wpisz tekst"; case .changer: return "Voice Changer" }
+        switch self { case .folder: return "Text folder"; case .text: return "Enter text"; case .changer: return "Voice Changer" }
     }
 }
 struct ExpressionSettings: Codable, Equatable {
@@ -154,23 +161,23 @@ struct ExpressionSettings: Codable, Equatable {
         return p
     }
 }
-struct Voice: Codable, Identifiable, Hashable {
-    let voice_id: String
-    let name: String
-    var id: String { voice_id }
-}
-struct VoicePage: Decodable {
-    let voices: [Voice]
-    let has_more: Bool
-    let next_page_token: String?
-}
 struct GenerationSettings {
     let voiceID: String
     let modelID: String
     var format: OutputFormat = .m4a
     var expression = ExpressionSettings()
     var removeNoise = false
-    var voiceParameters: [String: Any]? { expression.parameters(model: modelID) }
+    var languageCode: String?
+    var supportedExplicitLanguage = false
+    var chunkLimit = 4000
+    var supportsStyle: Bool? = nil
+    var supportsSpeakerBoost: Bool? = nil
+    var voiceParameters: [String: Any]? {
+        guard var parameters = expression.parameters(model: modelID) else { return nil }
+        if supportsStyle == false { parameters.removeValue(forKey: "style") }
+        if supportsSpeakerBoost == false { parameters.removeValue(forKey: "use_speaker_boost") }
+        return parameters
+    }
     var delivery: String {
         expression.enabled && (modelID == "eleven_v3" || modelID.hasPrefix("eleven_v4")) ? expression.delivery : ""
     }
@@ -181,107 +188,9 @@ struct GenerationSettings {
         }
         if !delivery.isEmpty { suffix += "\ndelivery:" + delivery }
         if removeNoise { suffix += "\nremove_noise:true" }
+        if supportedExplicitLanguage, let languageCode { suffix += "\nlanguage:" + languageCode }
+        if chunkLimit != 4000 { suffix += "\nchunk_limit:" + String(chunkLimit) }
         return TextFiles.digest("folder-voice-v1\n\(voiceID)\n\(modelID)\nmp3_44100_128\n\(text)" + suffix)
-    }
-}
-
-struct ElevenClient {
-    let key: String
-    var session: URLSession = .shared
-
-    func request(path: String, query: [URLQueryItem] = [], body: [String: Any]? = nil) throws -> URLRequest {
-        var components = URLComponents(string: "https://api.elevenlabs.io" + path)!
-        components.queryItems = query.isEmpty ? nil : query
-        var request = URLRequest(url: components.url!)
-        request.timeoutInterval = 240
-        request.setValue(key, forHTTPHeaderField: "xi-api-key")
-        if let body {
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        }
-        return request
-    }
-    func checked(_ request: URLRequest) async throws -> Data {
-        try Task.checkCancellation()
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw AppFailure("Brak odpowiedzi ElevenLabs.") }
-        guard (200..<300).contains(http.statusCode) else {
-            let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            let detail = json?["detail"] as? [String: Any]
-            let raw = (detail?["message"] as? String) ?? (json?["detail"] as? String) ?? ""
-            let safe = String(raw.replacingOccurrences(of: key, with: "[klucz ukryty]").prefix(250))
-            let hint: String
-            switch http.statusCode {
-            case 401, 403: hint = "Sprawdź klucz i uprawnienia Text to Speech, Speech to Speech (Voice Changer) oraz Voices: Read."
-            case 402: hint = "Sprawdź dostępne kredyty na koncie ElevenLabs."
-            case 429: hint = "Osiągnięto limit ElevenLabs. Sprawdź kredyty lub spróbuj później."
-            default: hint = "ElevenLabs zwrócił błąd HTTP \(http.statusCode)."
-            }
-            throw AppFailure(hint + (safe.isEmpty ? "" : "\n" + safe))
-        }
-        return data
-    }
-    func voices() async throws -> [Voice] {
-        var voices: [Voice] = [], token: String?, seen: Set<String> = []
-        repeat {
-            var query = [URLQueryItem(name: "page_size", value: "100")]
-            if let token { query.append(URLQueryItem(name: "next_page_token", value: token)) }
-            let data = try await checked(request(path: "/v2/voices", query: query))
-            let page = try JSONDecoder().decode(VoicePage.self, from: data)
-            voices += page.voices
-            token = page.has_more ? page.next_page_token : nil
-            if let token, !seen.insert(token).inserted { throw AppFailure("Nie udało się pobrać całej listy głosów.") }
-            if page.has_more && token == nil { throw AppFailure("ElevenLabs zwrócił niepełną listę głosów.") }
-        } while token != nil
-        var ids: Set<String> = []
-        return voices.filter { ids.insert($0.id).inserted }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-    func speech(text: String, settings: GenerationSettings, previous: String?, next: String?) async throws -> Data {
-        try validateVoice(settings.voiceID)
-        let spoken = settings.delivery.isEmpty ? text : "[\(settings.delivery)] " + text
-        var body: [String: Any] = ["text": spoken, "model_id": settings.modelID]
-        if let parameters = settings.voiceParameters { body["voice_settings"] = parameters }
-        // Multilingual v2 / Flash support stitching context. New expressive models
-        // can differ in optional parameters, so leave their defaults intact.
-        if settings.modelID == "eleven_multilingual_v2" || settings.modelID == "eleven_flash_v2_5" {
-            if let previous { body["previous_text"] = String(previous.suffix(500)) }
-            if let next { body["next_text"] = String(next.prefix(500)) }
-        }
-        return try await checked(request(path: "/v1/text-to-speech/" + settings.voiceID,
-            query: [URLQueryItem(name: "output_format", value: "mp3_44100_128")], body: body))
-    }
-    func validateVoice(_ id: String) throws {
-        guard !id.isEmpty, id.count <= 128, id.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else {
-            throw AppFailure("Wybierz głos lub wklej poprawny Voice ID.")
-        }
-    }
-    func changeVoice(audio: Data, extension ext: String, settings: GenerationSettings) async throws -> Data {
-        try validateVoice(settings.voiceID)
-        let boundary = "FolderVoice-" + UUID().uuidString
-        var data = Data()
-        func append(_ string: String) { data.append(Data(string.utf8)) }
-        func field(_ name: String, _ value: String) {
-            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n")
-        }
-        field("model_id", settings.modelID)
-        field("remove_background_noise", settings.removeNoise ? "true" : "false")
-        if let parameters = settings.voiceParameters {
-            let json = try JSONSerialization.data(withJSONObject: parameters, options: [.sortedKeys])
-            field("voice_settings", String(decoding: json, as: UTF8.self))
-        }
-        let safeExtension = AudioSources.extensions.contains(ext.lowercased()) ? ext.lowercased() : "wav"
-        let mime = ["mp3": "audio/mpeg", "wav": "audio/wav", "m4a": "audio/mp4", "flac": "audio/flac", "aiff": "audio/aiff", "aif": "audio/aiff"][safeExtension] ?? "application/octet-stream"
-        append("--\(boundary)\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"input.\(safeExtension)\"\r\nContent-Type: \(mime)\r\n\r\n")
-        data.append(audio)
-        append("\r\n--\(boundary)--\r\n")
-        var req = try request(path: "/v1/speech-to-speech/" + settings.voiceID,
-            query: [URLQueryItem(name: "output_format", value: "mp3_44100_128")])
-        req.httpMethod = "POST"; req.httpBody = data
-        req.setValue("multipart/form-data; boundary=" + boundary, forHTTPHeaderField: "Content-Type")
-        req.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
-        return try await checked(req)
     }
 }
 
@@ -289,8 +198,8 @@ enum AudioSources {
     static let extensions: Set<String> = ["mp3", "wav", "m4a", "flac", "aif", "aiff"]
     static func read(_ url: URL) throws -> Data {
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
-        guard values.isRegularFile == true, values.isSymbolicLink != true else { throw AppFailure("Wybierz zwykły plik audio, bez dowiązań.") }
-        guard (values.fileSize ?? 0) <= 100_000_000 else { throw AppFailure("Plik audio przekracza limit aplikacji 100 MB.") }
+        guard values.isRegularFile == true, values.isSymbolicLink != true else { throw AppFailure("Choose a regular audio file, not a symbolic link.") }
+        guard (values.fileSize ?? 0) <= 100_000_000 else { throw AppFailure("Audio files must be smaller than 100 MB.") }
         return try Data(contentsOf: url)
     }
     static func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
@@ -303,11 +212,11 @@ enum AudioSources {
             var item = FileItem(url: url, parts: 1, isAudio: true)
             do {
                 let name = item.outputBase.lastPathComponent.precomposedStringWithCanonicalMapping.lowercased()
-                guard names.insert(name).inserted else { throw AppFailure("Powtarzająca się nazwa wyniku. Zmień nazwę jednego pliku.") }
+                guard names.insert(name).inserted else { throw AppFailure("Duplicate output filename. Rename one of the source files.") }
                 let data = try read(url)
                 let file = try AVAudioFile(forReading: url)
                 item.duration = Double(file.length) / file.processingFormat.sampleRate
-                guard item.duration > 0, item.duration <= 300 else { throw AppFailure("Voice Changer: plik musi trwać od 0 do 5 minut. Podziel dłuższe nagranie.") }
+                guard item.duration > 0, item.duration <= 300 else { throw AppFailure("Voice Changer recordings must be between 0 and 5 minutes. Split longer recordings first.") }
                 item.fingerprint = digest(data)
                 item.inspectOutput(format)
             } catch { item.state = .invalid; item.detail = error.localizedDescription }
@@ -322,7 +231,7 @@ enum AudioFiles {
         return audio.length > 0
     }
     static func merge(_ inputs: [URL], to output: URL) throws {
-        guard let first = inputs.first else { throw AppFailure("Brak części nagrania.") }
+        guard let first = inputs.first else { throw AppFailure("No audio segments are available.") }
         if output.pathExtension == "mp3" {
             if inputs.count == 1 && first.pathExtension.lowercased() == "mp3" {
                 try FileManager.default.copyItem(at: first, to: output)
@@ -345,8 +254,8 @@ enum AudioFiles {
         for input in inputs {
             try Task.checkCancellation()
             let reader = try AVAudioFile(forReading: input)
-            guard reader.processingFormat == format else { throw AppFailure("Części nagrania mają różne formaty audio.") }
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192) else { throw AppFailure("Nie można przygotować bufora audio.") }
+            guard reader.processingFormat == format else { throw AppFailure("Audio segments have incompatible formats.") }
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192) else { throw AppFailure("Could not create an audio buffer.") }
             while reader.framePosition < reader.length {
                 try Task.checkCancellation()
                 try reader.read(into: buffer)
@@ -359,7 +268,7 @@ enum AudioFiles {
         let sample = try AVAudioFile(forReading: inputs[0], commonFormat: .pcmFormatFloat32, interleaved: false)
         let format = sample.processingFormat
         guard format.channelCount == 1 || format.channelCount == 2, let encoder = lame_init() else {
-            throw AppFailure("Enkoder MP3 obsługuje nagrania mono i stereo.")
+            throw AppFailure("MP3 encoding supports mono and stereo recordings.")
         }
         defer { lame_close(encoder) }
         lame_set_in_samplerate(encoder, Int32(format.sampleRate))
@@ -367,30 +276,30 @@ enum AudioFiles {
         lame_set_brate(encoder, 128)
         lame_set_quality(encoder, 2)
         lame_set_write_id3tag_automatic(encoder, 0)
-        guard lame_init_params(encoder) == 0 else { throw AppFailure("Nie można uruchomić enkodera MP3.") }
-        guard FileManager.default.createFile(atPath: output.path, contents: nil) else { throw AppFailure("Nie można zapisać MP3.") }
+        guard lame_init_params(encoder) == 0 else { throw AppFailure("Could not initialize the MP3 encoder.") }
+        guard FileManager.default.createFile(atPath: output.path, contents: nil) else { throw AppFailure("Could not write the MP3 file.") }
         let writer = try FileHandle(forWritingTo: output)
         defer { try? writer.close() }
         var encoded = [UInt8](repeating: 0, count: 32768)
         for input in inputs {
             let reader = try AVAudioFile(forReading: input, commonFormat: .pcmFormatFloat32, interleaved: false)
             guard reader.processingFormat == format,
-                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192) else { throw AppFailure("Niezgodne formaty części MP3.") }
+                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192) else { throw AppFailure("MP3 segments have incompatible formats.") }
             while reader.framePosition < reader.length {
                 try Task.checkCancellation()
                 try reader.read(into: buffer)
                 guard buffer.frameLength > 0, let channels = buffer.floatChannelData else { break }
                 let right = format.channelCount > 1 ? channels[1] : channels[0]
                 let count = lame_encode_buffer_ieee_float(encoder, channels[0], right, Int32(buffer.frameLength), &encoded, Int32(encoded.count))
-                guard count >= 0 else { throw AppFailure("Błąd kodowania MP3 (\(count)).") }
+                guard count >= 0 else { throw AppFailure(L("MP3 encoding failed (%d).", count)) }
                 try writer.write(contentsOf: Data(encoded.prefix(Int(count))))
             }
         }
         let count = lame_encode_flush(encoder, &encoded, Int32(encoded.count))
-        guard count >= 0 else { throw AppFailure("Błąd zakończenia MP3.") }
+        guard count >= 0 else { throw AppFailure("Could not finalize the MP3 file.") }
         try writer.write(contentsOf: Data(encoded.prefix(Int(count))))
         let tagSize = lame_get_lametag_frame(encoder, &encoded, encoded.count)
-        guard tagSize <= encoded.count else { throw AppFailure("Nieprawidłowy nagłówek MP3.") }
+        guard tagSize <= encoded.count else { throw AppFailure("Invalid MP3 header.") }
         if tagSize > 0 {
             try writer.seek(toOffset: 0)
             try writer.write(contentsOf: Data(encoded.prefix(tagSize)))
@@ -402,7 +311,7 @@ enum BatchProcessor {
     static func directory(_ url: URL) throws {
         // Refuse symlinks, including a dangling one, before creating/writing.
         if let v = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey]) {
-            guard v.isSymbolicLink != true, v.isDirectory == true else { throw AppFailure("Niedostępny folder: \(url.lastPathComponent)") }
+            guard v.isSymbolicLink != true, v.isDirectory == true else { throw AppFailure(L("Cannot access folder: %@", url.lastPathComponent)) }
         }
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
@@ -410,27 +319,29 @@ enum BatchProcessor {
                         progress: @escaping @Sendable (Int, Int, String) async -> Void) async throws -> Bool {
         try Task.checkCancellation()
         let output = item.output(settings.format)
+        guard !item.isAudio || output.standardizedFileURL != item.url.standardizedFileURL else { throw AppFailure("Choose a destination different from the source recording.") }
         if FileManager.default.fileExists(atPath: output.path) { return false }
         try directory(output.deletingLastPathComponent())
         if let existing = item.existingAudio(except: settings.format) {
-            await progress(0, 1, "Konwertuję lokalnie · bez API")
+            await progress(0, 1, "Converting locally · no API request")
             return try export([existing], to: output, stagingFolder: output.deletingLastPathComponent())
         }
         let chunks: [String], fingerprint: String
         var sourceAudio: Data?
         if item.isAudio {
+            guard ["mp3", "m4a", "flac", "oga", "ogg", "wav"].contains(item.url.pathExtension.lowercased()) else { throw AppFailure("Voice Changer accepts MP3, M4A, FLAC, OGA, OGG or WAV. Export other formats as WAV first.") }
             let data = try AudioSources.read(item.url)
             fingerprint = AudioSources.digest(data)
             sourceAudio = data; chunks = [fingerprint]
         } else {
-            let text = try item.inlineText ?? TextFiles.read(item.url)
-            guard !text.isEmpty else { throw AppFailure("Pusty tekst.") }
+            let text = try item.inlineText ?? ImportService.readText(item.url)
+            guard !text.isEmpty else { throw AppFailure("Enter some text first.") }
             fingerprint = TextFiles.digest(text)
             // Leave room for an optional delivery tag within the API limit.
-            chunks = TextFiles.chunks(text, limit: settings.delivery.isEmpty ? 4000 : 3900)
+            chunks = TextFiles.chunks(text, limit: max(1, min(4000, settings.chunkLimit) - (settings.delivery.isEmpty ? 0 : 100)))
         }
         guard fingerprint == item.fingerprint else {
-            throw AppFailure("Plik zmienił się po wczytaniu folderu. Kliknij Odśwież i uruchom ponownie.")
+            throw AppFailure("The source changed after import. Import it again before retrying.")
         }
         let cacheRoot = item.url.deletingLastPathComponent().appendingPathComponent(".folder-voice-cache", isDirectory: true)
         try directory(cacheRoot)
@@ -443,12 +354,12 @@ enum BatchProcessor {
             try Task.checkCancellation()
             let part = cache.appendingPathComponent(String(format: "%05d.mp3", index))
             if let v = try? part.resourceValues(forKeys: [.isSymbolicLinkKey]), v.isSymbolicLink == true {
-                throw AppFailure("Nieprawidłowy plik części nagrania.")
+                throw AppFailure("Invalid cached audio segment.")
             }
             if AudioFiles.valid(part) {
-                await progress(index + 1, chunks.count, "Wznawiam — część \(index + 1)/\(chunks.count)")
+                await progress(index + 1, chunks.count, L("Resuming segment %d of %d", index + 1, chunks.count))
             } else {
-                await progress(index, chunks.count, "Generuję część \(index + 1)/\(chunks.count)")
+                await progress(index, chunks.count, L("Generating segment %d of %d", index + 1, chunks.count))
                 let data: Data
                 if let sourceAudio {
                     data = try await client.changeVoice(audio: sourceAudio, extension: item.url.pathExtension, settings: settings)
@@ -457,13 +368,13 @@ enum BatchProcessor {
                         previous: index > 0 ? chunks[index - 1] : nil, next: index + 1 < chunks.count ? chunks[index + 1] : nil)
                 }
                 try data.write(to: part, options: .atomic)
-                guard AudioFiles.valid(part) else { throw AppFailure("ElevenLabs nie zwrócił poprawnego audio. Przerwano.") }
-                await progress(index + 1, chunks.count, "Pobrano część \(index + 1)/\(chunks.count)")
+                guard AudioFiles.valid(part) else { throw AppFailure("ElevenLabs returned invalid audio. Generation stopped.") }
+                await progress(index + 1, chunks.count, L("Downloaded segment %d of %d", index + 1, chunks.count))
             }
             audioURLs.append(part)
         }
         try Task.checkCancellation()
-        await progress(chunks.count, chunks.count, "Zapisuję \(output.lastPathComponent)")
+        await progress(chunks.count, chunks.count, L("Saving %@", output.lastPathComponent))
         let result = try export(audioURLs, to: output, stagingFolder: cache)
         if result { try? FileManager.default.removeItem(at: cache) }
         return result
@@ -472,7 +383,7 @@ enum BatchProcessor {
         let staging = stagingFolder.appendingPathComponent(".foldervoice-" + UUID().uuidString).appendingPathExtension(output.pathExtension)
         defer { try? FileManager.default.removeItem(at: staging) }
         try AudioFiles.merge(inputs, to: staging)
-        guard AudioFiles.valid(staging) else { throw AppFailure("Nie udało się zapisać nagrania.") }
+        guard AudioFiles.valid(staging) else { throw AppFailure("Could not save the recording.") }
         try Task.checkCancellation()
         if FileManager.default.fileExists(atPath: output.path) { return false }
         try FileManager.default.moveItem(at: staging, to: output)
@@ -500,7 +411,10 @@ enum KeyStore {
             q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             status = SecItemAdd(q as CFDictionary, nil)
         }
-        guard status == errSecSuccess else { throw AppFailure("Nie udało się zapisać klucza w pęku kluczy (\(status)).") }
+        guard status == errSecSuccess else { throw AppFailure(L("Could not save the API key in Keychain (%d).", status)) }
     }
-    static func delete() { SecItemDelete(query as CFDictionary) }
+    static func delete() throws {
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw AppFailure(L("Could not remove the API key from Keychain (%d).", status)) }
+    }
 }

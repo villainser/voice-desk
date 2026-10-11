@@ -1,0 +1,2 @@
+/* System permission dialogs follow the macOS application language. */
+"NSMicrophoneUsageDescription" = "Voice Desk records your microphone when you press Record, so you can send the recording to ElevenLabs for voice conversion.";

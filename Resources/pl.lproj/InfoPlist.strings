@@ -1,0 +1,2 @@
+/* System permission dialogs follow the macOS application language. */
+"NSMicrophoneUsageDescription" = "Voice Desk nagrywa mikrofon po naciśnięciu przycisku nagrywania, aby umożliwić przesłanie nagrania do ElevenLabs w celu zmiany głosu.";

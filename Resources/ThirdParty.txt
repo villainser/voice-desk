@@ -3,7 +3,7 @@ Copyright The LAME Project and its contributors.
 https://lame.sourceforge.io/
 Source: https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz
 License: LAME-LICENSE.txt (included in this application).
-The source distribution FolderVoice-zrodla.zip includes the original LAME
+The source distribution VoiceDesk-source.zip includes the original LAME
 source archive, Swift application sources, static library and build scripts.
 Run build-lame.sh to rebuild LAME, then build.sh to relink the application
 with your modified library. No LAME source modifications were made.
