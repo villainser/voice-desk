@@ -12,7 +12,8 @@ Voice Desk is a SwiftUI macOS application. ElevenLabs performs every AI operatio
 | [APIModels.swift](Sources/APIModels.swift) | Decodable voice, model, account, history, and tool responses |
 | [Core.swift](Sources/Core.swift) | Generation settings, text segmentation, resumable processing, audio export, and Keychain access |
 | [Imports.swift](Sources/Imports.swift) | File selection expansion, validation, subtitle parsing, and Finder drops |
-| [Media.swift](Sources/Media.swift) | Audio playback and microphone recording |
+| [Media.swift](Sources/Media.swift) | Audio playback |
+| [Recording.swift](Sources/Recording.swift) | Input-device discovery, capture session, recording state, and file finalization |
 | [Localization.swift](Sources/Localization.swift) | Runtime English/Polish catalog selection and format substitution |
 
 The API contract and feature restrictions are maintained in [ELEVENLABS_API.md](ELEVENLABS_API.md). UI code must not infer ownership from a voice's category or from its presence in an account response. Model capabilities and language lists come from the model response rather than a fixed language menu.
@@ -39,7 +40,9 @@ Text files are limited to 10 MB, audio files to 100 MB, and one import selection
 
 `AudioPlayerModel` uses AVPlayer for local results and HTTPS voice previews. Loading a preview does not generate speech. The player tracks loading, duration, seeking, completion, and playback failures.
 
-`MicrophoneRecorder` asks for permission only after Record is pressed. It records mono 44.1 kHz, 16-bit PCM WAV, reports elapsed time and input level, and stops at five minutes. Cancellation deletes only the unfinished recording created by that recorder. Imported audio is never deleted by the recording flow.
+`MicrophoneRecorder` asks for permission only after Record is pressed. `AudioInputs` lists macOS audio-capture devices by stable UID. `FileMicrophoneCapture` configures an AVCaptureSession with the selected device on a serial queue and records mono 44.1 kHz, 16-bit PCM WAV through AVCaptureAudioFileOutput. It never changes the system input device. Time and level updates return to the main actor; duration and file-size limits are also applied to the capture output.
+
+The state distinguishes preparation, recording, and file finalization. A sample is delivered only after the file-output delegate reports completion and local decoding validates the WAV. AppModel captures the intended destination when recording starts: Voice Changer source and cloning samples cannot overwrite one another. Generation and sample-list edits are blocked until finalization completes. Cancellation deletes only the unfinished capture; removing a finished cloning sample is list-only. Device notifications refresh the picker and stop an unavailable explicit input without selecting another microphone. Tests inject permission, device discovery, and the capture backend.
 
 ## Credentials and local data
 

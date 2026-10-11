@@ -24,7 +24,7 @@ struct ContentView: View {
                     Section(L("Tools")) { ForEach(tools) { nav($0) } }
                     Section(L("Library")) { nav(.library); nav(.batch) }
                     Section { nav(.settings) }
-                }.listStyle(.sidebar).disabled(model.recorder.isRecording || model.recorder.isRequestingPermission)
+                }.listStyle(.sidebar).disabled(model.recorder.isBusy)
                 HStack(spacing: 7) {
                     Circle().fill(model.hasKey ? Color.green : Color.secondary).frame(width: 6, height: 6)
                     Text(model.hasKey ? L("API key configured") : L("Set up ElevenLabs")).font(.caption).foregroundStyle(.secondary)
@@ -48,21 +48,21 @@ struct ContentView: View {
                 }
                 if let error = model.error { message(error, error: true) }
                 if let notice = model.notice { message(notice, error: false) }
-                if model.player.sourceURL != nil { AudioPlayerView(player: model.player, model: model).padding(.horizontal, 24).padding(.bottom, 14) }
+                if model.player.sourceURL != nil { AudioPlayerView(player: model.player, model: model).disabled(model.recorder.isBusy).padding(.horizontal, 24).padding(.bottom, 14) }
                 HStack {
                     if model.busy { ProgressView().controlSize(.small) }
                     Text(L(model.status)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     if let progress = model.progress { ProgressView(value: progress).frame(width: 140) }
                     Spacer()
-                    if model.recorder.isRecording { Button(L("Stop Recording"), action: model.record).tint(.red) }
+                    if model.recorder.isRecording { Button(L("Stop Recording"), action: model.stopRecording).tint(.red) }
                     if model.busy { Button(L("Cancel"), action: model.cancel).keyboardShortcut(.cancelAction) }
-                    Text("Voice Desk 2.0.1").font(.caption2).foregroundStyle(.tertiary)
+                    Text("Voice Desk 2.0.2").font(.caption2).foregroundStyle(.tertiary)
                 }.padding(12).background(.bar)
             }.navigationTitle(model.page.title)
             .toolbar {
                 ToolbarItemGroup {
                     if model.page != .settings {
-                        Button { model.page = .settings } label: { Image(systemName: "gearshape") }.help(L("Settings"))
+                        Button { model.page = .settings } label: { Image(systemName: "gearshape") }.help(L("Settings")).disabled(model.recorder.isBusy)
                     }
                 }
             }
@@ -78,6 +78,7 @@ struct ContentView: View {
         .onChange(of: model.modelID) { _, _ in model.modelChanged() }
         .onChange(of: model.conversionModelID) { _, _ in model.persistPreferences() }
         .onChange(of: model.voiceID) { _, _ in model.persistPreferences() }
+        .onChange(of: model.recorder.selectedDeviceID) { _, _ in model.persistPreferences() }
         .onChange(of: model.speechLanguage) { _, _ in model.persistPreferences() }
         .onChange(of: model.format) { _, _ in model.persistPreferences(); model.refreshJobOutputs() }
         .onChange(of: model.expression) { _, _ in model.persistPreferences() }
@@ -211,9 +212,9 @@ struct ContentView: View {
                     }.padding(8)
                 }
                 formatControls
-                DisclosureGroup(L("Voice settings"), isExpanded: $model.advanced) { expressionControls.padding(.top, 10) }
+                GroupBox { expressionControls.padding(8) } label: { Text(L("Voice settings")).font(.headline) }
             }
-        }.disabled(model.busy || model.recorder.isRecording)
+        }.disabled(model.busy || model.recorder.isBusy)
     }
     private var formatControls: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -226,7 +227,7 @@ struct ContentView: View {
     private var expressionControls: some View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle(L("Override voice defaults"), isOn: $model.expression.enabled)
-            if model.expression.enabled {
+            VStack(alignment: .leading, spacing: 12) {
                 if model.expressionModel == "eleven_v3" {
                     Picker(L("Stability"), selection: $model.expression.stability) {
                         Text(L("Creative")).tag(0.0); Text(L("Natural")).tag(0.5); Text(L("Robust")).tag(1.0)
@@ -255,7 +256,7 @@ struct ContentView: View {
                     }
                     Text(L("Delivery tags are prepended to each segment. Results depend on the selected voice.")).font(.caption2).foregroundStyle(.secondary)
                 }
-            }
+            }.disabled(!model.expression.enabled).opacity(model.expression.enabled ? 1 : 0.45)
         }
     }
     private func slider(_ title: String, value: Binding<Double>) -> some View {
@@ -397,7 +398,7 @@ struct ContentView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 heading(L("Create a voice for your library"), L("Voice Design creates a synthetic voice. Instant Voice Cloning creates a voice from recordings you have permission to use."), icon: "person.badge.plus")
-                Picker(L("Creation method"), selection: $model.voiceCreationMode) { Text(L("Voice Design")).tag("design"); Text(L("Instant Voice Clone")).tag("clone") }.pickerStyle(.segmented)
+                Picker(L("Creation method"), selection: $model.voiceCreationMode) { Text(L("Voice Design")).tag("design"); Text(L("Instant Voice Clone")).tag("clone") }.pickerStyle(.segmented).disabled(model.recorder.isBusy)
                 TextField(L("Voice name"), text: $model.voiceName).textFieldStyle(.roundedBorder)
                 Text(L("Voice description")).font(.headline)
                 TextEditor(text: $model.voiceDescription).frame(height: 100).padding(6).overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
@@ -415,13 +416,22 @@ struct ContentView: View {
                     }
                     if !model.designPreviews.isEmpty { Button(L("Save Selected Voice"), action: model.saveDesign).disabled(model.voiceName.isEmpty).buttonStyle(.borderedProminent) }
                 } else {
-                    Button(L("Choose Voice Samples…"), action: model.pickCloneSamples)
-                    ForEach(model.cloneSamples, id: \.path) { Text($0.lastPathComponent).font(.callout) }
+                    MicrophoneControls(recorder: model.recorder, record: model.recordCloneSample)
+                    Text(L("Record one or more samples, or add audio files. Samples stay on this Mac until you press Create Voice Clone.")).font(.caption).foregroundStyle(.secondary)
+                    Button(L("Choose Voice Samples…"), action: model.pickCloneSamples).disabled(model.recorder.isBusy)
+                    ForEach(model.cloneSamples, id: \.path) { url in
+                        HStack {
+                            Text(url.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            Button { model.previewCloneSample(url) } label: { Label(L("Play Preview"), systemImage: "play.circle") }
+                            Button { model.removeCloneSample(url) } label: { Image(systemName: "xmark.circle") }.help(L("Remove sample from this list"))
+                        }.font(.callout).disabled(model.recorder.isBusy)
+                    }
                     Toggle(L("Remove background noise"), isOn: $model.removeNoise)
                     Toggle(L("I have the right and consent to clone the voice in these recordings."), isOn: $model.cloneConsent)
                     if model.account?.can_use_instant_voice_cloning == false { Text(L("Your subscription reports that Instant Voice Cloning is unavailable.")).foregroundStyle(.secondary) }
                     Button(L("Create Voice Clone"), action: model.cloneVoice).buttonStyle(.borderedProminent)
-                        .disabled(!model.hasKey || model.voiceName.isEmpty || model.cloneSamples.isEmpty || !model.cloneConsent || model.account?.can_use_instant_voice_cloning == false)
+                        .disabled(!model.hasKey || model.voiceName.isEmpty || model.cloneSamples.isEmpty || !model.cloneConsent || model.recorder.isBusy || model.account?.can_use_instant_voice_cloning == false)
                     Text(L("ElevenLabs may require additional verification. Voice creation and Text to Speech are separate operations.")).font(.caption).foregroundStyle(.secondary)
                 }
             }.disabled(model.busy)
@@ -594,23 +604,50 @@ struct AudioSourceView: View {
                     Text(L("MP3, WAV, M4A or FLAC · drag and drop supported")).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(L("Import Audio…"), action: model.importAudio).disabled(recorder.isRecording || recorder.isRequestingPermission)
+                Button(L("Import Audio…"), action: model.importAudio).disabled(recorder.isBusy)
             }
-            if recordEnabled {
-                HStack {
-                    Button(action: model.record) { Label(recorder.isRecording ? L("Stop Recording") : L("Record Microphone"), systemImage: recorder.isRecording ? "stop.circle.fill" : "mic") }
-                        .disabled(recorder.isRequestingPermission)
-                    if recorder.isRequestingPermission { ProgressView().controlSize(.small) }
-                    if recorder.isRecording {
-                        Text(L("Recording %.0f s", recorder.elapsed)).monospacedDigit().foregroundStyle(.red)
-                        ProgressView(value: recorder.level).frame(width: 100)
-                    }
-                    Spacer()
-                }
-                if let error = recorder.error { Text(error).font(.caption).foregroundStyle(.red) }
-            }
+            if recordEnabled { MicrophoneControls(recorder: recorder, record: model.record) }
         }.padding(18).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
-        .onChange(of: recorder.recordingURL) { _, url in if !recorder.isRecording, let url { model.sourceAudio = url } }
+    }
+}
+
+struct MicrophoneControls: View {
+    @ObservedObject var recorder: MicrophoneRecorder
+    let record: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                if recorder.devices.isEmpty {
+                    Label(L("No microphones available"), systemImage: "mic.slash").foregroundStyle(.secondary)
+                } else {
+                    Picker(L("Microphone"), selection: $recorder.selectedDeviceID) {
+                        Text(L("System default input")).tag("")
+                        if !recorder.selectedDeviceID.isEmpty && !recorder.selectedInputAvailable {
+                            Text(L("Disconnected microphone")).tag(recorder.selectedDeviceID)
+                        }
+                        ForEach(recorder.devices) { Text($0.name).tag($0.id) }
+                    }.disabled(recorder.isBusy)
+                }
+                Button { recorder.refreshDevices() } label: { Image(systemName: "arrow.clockwise") }
+                    .help(L("Refresh microphones")).disabled(recorder.isBusy)
+            }
+            HStack {
+                Button(action: record) {
+                    Label(recorder.isRecording ? L("Stop Recording") : L("Record Microphone"), systemImage: recorder.isRecording ? "stop.circle.fill" : "mic")
+                }.disabled(recorder.isFinishing || recorder.isRequestingPermission || (!recorder.isRecording && !recorder.selectedInputAvailable))
+                if recorder.isRequestingPermission || recorder.isFinishing {
+                    ProgressView().controlSize(.small)
+                    Text(recorder.isFinishing ? L("Saving recording…") : L("Preparing microphone…")).font(.caption)
+                }
+                if recorder.isRequestingPermission { Button(L("Cancel")) { recorder.cancel() } }
+                if recorder.isRecording {
+                    Text(L("Recording %.0f s", recorder.elapsed)).monospacedDigit().foregroundStyle(.red)
+                    ProgressView(value: recorder.level).frame(width: 100).accessibilityLabel(L("Microphone level"))
+                }
+            }
+            Text(L("Built-in and external microphones supported · up to 5 minutes per sample")).font(.caption).foregroundStyle(.secondary)
+            if let error = recorder.error { Text(error).font(.caption).foregroundStyle(.red) }
+        }.onAppear { recorder.refreshDevices() }
     }
 }
 
@@ -689,9 +726,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         model?.persistPreferences()
-        guard let model, model.busy || model.recorder.isRecording else { return .terminateNow }
+        guard let model, model.busy || model.recorder.isBusy else { return .terminateNow }
         if model.confirm(title: L("Stop the current operation and quit?"), message: L("Completed files are kept. A request already sent to ElevenLabs may still use credits. Server-side dubbing jobs keep running."), action: L("Quit")) {
-            model.cancel(); if model.recorder.isRecording { _ = model.recorder.stop() }; return .terminateNow
+            model.cancel()
+            guard model.recorder.isBusy else { return .terminateNow }
+            model.recorder.stop()
+            Task { @MainActor in
+                let deadline = Date().addingTimeInterval(15)
+                while model.recorder.isBusy && Date() < deadline { try? await Task.sleep(nanoseconds: 50_000_000) }
+                if model.recorder.isBusy { model.error = L("The recording is still being saved. Try quitting again when it finishes.") }
+                sender.reply(toApplicationShouldTerminate: !model.recorder.isBusy)
+            }
+            return .terminateLater
         }
         return .terminateCancel
     }
@@ -707,12 +753,12 @@ struct VoiceDeskApp: App {
         }.defaultSize(width: 1260, height: 850)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button(L("Import Text…"), action: model.importText).keyboardShortcut("o").disabled(model.busy)
-                Button(L("Import Audio…"), action: model.importAudio).keyboardShortcut("o", modifiers: [.command, .shift]).disabled(model.busy)
+                Button(L("Import Text…"), action: model.importText).keyboardShortcut("o").disabled(model.busy || model.recorder.isBusy)
+                Button(L("Import Audio…"), action: model.importAudio).keyboardShortcut("o", modifiers: [.command, .shift]).disabled(model.busy || model.recorder.isBusy)
             }
             CommandGroup(replacing: .appSettings) { Button(L("Settings")) { model.page = .settings }.keyboardShortcut(",") }
             CommandMenu(L("Audio")) {
-                Button(L("Generate Speech"), action: model.generateSpeech).keyboardShortcut(.return, modifiers: .command).disabled(model.page != .speech || !model.canGenerate || model.text.isEmpty)
+                Button(L("Generate Speech"), action: model.generateSpeech).keyboardShortcut(.return, modifiers: .command).disabled(model.page != .speech || !model.canGenerate || model.text.isEmpty || model.recorder.isBusy)
                 Button(L("Play / Pause"), action: model.player.togglePlayback).keyboardShortcut("p", modifiers: [.command, .shift])
                 Button(L("Save Audio…")) { model.exportAudio() }.keyboardShortcut("s").disabled(model.result == nil)
             }

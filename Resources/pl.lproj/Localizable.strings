@@ -396,3 +396,23 @@
 "Available ElevenLabs voices" = "Dostępne głosy ElevenLabs";
 "Shared voice library" = "Wspólna biblioteka głosów";
 "Available ElevenLabs voices not saved to My Voices." = "Dostępne głosy ElevenLabs, których nie zapisano w Moich głosach.";
+
+"The selected microphone is unavailable. Connect it or choose another input." = "Wybrany mikrofon jest niedostępny. Podłącz go lub wybierz inne wejście.";
+"This microphone cannot record WAV audio. Choose another input." = "Ten mikrofon nie pozwala nagrywać plików WAV. Wybierz inne wejście.";
+"The microphone stopped responding. Choose an input and try again." = "Mikrofon przestał odpowiadać. Wybierz wejście i spróbuj ponownie.";
+"Recording could not start. Choose another microphone and try again." = "Nie udało się rozpocząć nagrywania. Wybierz inny mikrofon i spróbuj ponownie.";
+"The selected microphone was disconnected. The recorded part will be kept." = "Wybrany mikrofon został odłączony. Nagrany fragment zostanie zachowany.";
+"Recording stopped unexpectedly. The recorded part has been saved." = "Nagrywanie zostało przerwane. Nagrany fragment został zapisany.";
+"The recording is empty or could not be saved. Check the microphone and try again." = "Nagranie jest puste lub nie udało się go zapisać. Sprawdź mikrofon i spróbuj ponownie.";
+"Record one or more samples, or add audio files. Samples stay on this Mac until you press Create Voice Clone." = "Nagraj jedną lub więcej próbek albo dodaj pliki audio. Próbki pozostają na tym Macu do naciśnięcia przycisku Utwórz klon głosu.";
+"Remove sample from this list" = "Usuń próbkę z listy";
+"No microphones available" = "Brak dostępnych mikrofonów";
+"Microphone" = "Mikrofon";
+"System default input" = "Domyślne wejście systemowe";
+"Disconnected microphone" = "Odłączony mikrofon";
+"Refresh microphones" = "Odśwież mikrofony";
+"Saving recording…" = "Zapisywanie nagrania…";
+"Preparing microphone…" = "Przygotowywanie mikrofonu…";
+"Microphone level" = "Poziom mikrofonu";
+"Built-in and external microphones supported · up to 5 minutes per sample" = "Mikrofon wbudowany i urządzenia zewnętrzne · do 5 minut na próbkę";
+"The recording is still being saved. Try quitting again when it finishes." = "Nagranie jest jeszcze zapisywane. Zamknij aplikację po zakończeniu zapisu.";

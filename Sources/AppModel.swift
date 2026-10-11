@@ -86,7 +86,6 @@ final class AppModel: ObservableObject {
     @Published var speechLanguage = ""
     @Published var format: OutputFormat = .mp3
     @Published var expression = ExpressionSettings()
-    @Published var advanced = false
     @Published var text = ""
     @Published var recordingTitle = ""
     @Published var sourceAudio: URL?
@@ -138,7 +137,9 @@ final class AppModel: ObservableObject {
     @Published var editName = ""
     @Published var editDescription = ""
     let player = AudioPlayerModel()
-    let recorder = MicrophoneRecorder()
+    let recorder: MicrophoneRecorder
+    enum RecordingTarget { case source, cloneSample }
+    private var recordingTarget: RecordingTarget?
     private var apiKey = ""
     private var task: Task<Void, Never>?
     private let previewMode = ProcessInfo.processInfo.arguments.contains("--ui-test-mode")
@@ -162,7 +163,7 @@ final class AppModel: ObservableObject {
         elevenLabsVoices.filter { sharedSearch.isEmpty || ($0.name + " " + ($0.description ?? "") + " " + $0.languageSummary).localizedCaseInsensitiveContains(sharedSearch) }
     }
     var readyJobs: [FileItem] { jobs.filter { $0.state == .ready || $0.state == .failed } }
-    var canGenerate: Bool { hasKey && !voiceID.isEmpty && !busy }
+    var canGenerate: Bool { hasKey && !voiceID.isEmpty && !busy && !recorder.isBusy }
     var isConversion: Bool { page == .changer || (page == .batch && batchAudio) }
     var expressionModel: String { isConversion ? conversionModelID : modelID }
     var expressionCapabilities: APIModel? { models.first { $0.id == expressionModel } }
@@ -177,10 +178,13 @@ final class AppModel: ObservableObject {
             supportsSpeakerBoost: expressionCapabilities?.can_use_speaker_boost == true)
     }
 
-    init() {
+    init(recorder: MicrophoneRecorder? = nil) {
+        self.recorder = recorder ?? MicrophoneRecorder()
+        self.recorder.onFinished = { [weak self] url in self?.receiveRecording(url) }
         guard !previewMode else { return }
         let defaults = UserDefaults.standard
         voiceID = defaults.string(forKey: "voiceID") ?? ""
+        self.recorder.selectedDeviceID = defaults.string(forKey: "microphoneID") ?? ""
         voiceSource = VoiceSource(rawValue: defaults.string(forKey: "voiceSource") ?? "saved") ?? .saved
         modelID = defaults.string(forKey: "modelID") ?? "eleven_multilingual_v2"
         conversionModelID = defaults.string(forKey: "conversionModelID") ?? "eleven_multilingual_sts_v2"
@@ -205,6 +209,7 @@ final class AppModel: ObservableObject {
         let defaults = UserDefaults.standard
         defaults.set(voiceID, forKey: "voiceID"); defaults.set(modelID, forKey: "modelID")
         defaults.set(voiceSource.rawValue, forKey: "voiceSource")
+        defaults.set(recorder.selectedDeviceID, forKey: "microphoneID")
         defaults.set(conversionModelID, forKey: "conversionModelID")
         defaults.set(speechLanguage, forKey: "speechLanguage"); defaults.set(format.rawValue, forKey: "format")
         defaults.set(try? JSONEncoder().encode(expression), forKey: "expression")
@@ -341,16 +346,27 @@ final class AppModel: ObservableObject {
         }
     }
     func record() {
+        record(for: .source)
+    }
+    func recordCloneSample() { record(for: .cloneSample) }
+    private func record(for target: RecordingTarget) {
         guard !busy else { return }
-        if recorder.isRecording {
-            if let url = recorder.stop() { sourceAudio = url; player.load(url) }
-        } else {
-            player.stop()
-            Task { await recorder.start() }
-        }
+        if recorder.isRecording { stopRecording(); return }
+        guard !recorder.isBusy else { return }
+        recordingTarget = target
+        player.stop()
+        Task { await recorder.start() }
+    }
+    func stopRecording() { recorder.stop() }
+    private func receiveRecording(_ url: URL) {
+        if recordingTarget == .cloneSample {
+            if !cloneSamples.contains(url) { cloneSamples.append(url) }
+        } else if recordingTarget == .source { sourceAudio = url }
+        recordingTarget = nil
+        player.load(url)
     }
     func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard !busy, !recorder.isRecording else { return false }
+        guard !busy, !recorder.isBusy else { return false }
         Task {
             do {
                 let urls = try await ImportService.dropURLs(from: providers)
@@ -513,9 +529,23 @@ final class AppModel: ObservableObject {
             await refreshAfterMutation()
         }
     }
-    func pickCloneSamples() { cloneSamples = selectFiles(audio: true, multiple: true) }
+    func pickCloneSamples() {
+        guard !recorder.isBusy else { return }
+        let files = selectFiles(audio: true, multiple: true)
+        guard !files.isEmpty else { return }
+        run("Reading audio") { [self] in
+            for file in files { _ = try await Task.detached { try ImportService.inspectAudio(file) }.value }
+            for file in files where !cloneSamples.contains(file) { cloneSamples.append(file) }
+        }
+    }
+    func removeCloneSample(_ url: URL) {
+        guard !recorder.isBusy else { return }
+        cloneSamples.removeAll { $0 == url }
+        if player.sourceURL == url { player.clear() }
+    }
+    func previewCloneSample(_ url: URL) { guard !recorder.isBusy else { return }; player.load(url); player.play() }
     func cloneVoice() {
-        guard requireKey(), cloneConsent, !cloneSamples.isEmpty else { return }
+        guard !recorder.isBusy, requireKey(), cloneConsent, !cloneSamples.isEmpty else { return }
         run("Creating voice clone") { [self] in
             let result = try await client.cloneVoice(name: voiceName, description: voiceDescription, samples: cloneSamples, removeNoise: removeNoise)
             voiceID = result.voice_id; cloneConsent = false; persistPreferences()

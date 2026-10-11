@@ -55,13 +55,21 @@ Voice editing and deletion are available only when the API explicitly confirms o
 
 Choose **Text to Speech**, enter text, and select a voice and model. A saved or cloned voice is used through the same workflow. Select a supported speech language when the model provides an explicit language control, or leave automatic handling enabled. For example, Japanese text can be generated with the same selected voice when that model and voice support Japanese. The app preserves the input and does not translate it.
 
-Advanced expression settings depend on the selected model. Generate creates the full recording; playback and export become available after the download completes. The output choices are MP3, M4A, and WAV.
+Voice settings are visible below Output format. Enable **Override voice defaults** to edit the model’s supported parameters; inactive controls are dimmed. Generate creates the full recording; playback and export become available after the download completes. The output choices are MP3, M4A, and WAV.
 
 ### Change an existing recording's voice
 
 Choose **Voice Changer**, import a supported recording or press Record, and select the target voice. Stop recording before starting conversion. The microphone workflow requests macOS permission the first time it needs it. Noise removal is optional.
 
 Voice Changer transforms the supplied performance. It does not generate replacement words from typed text, and it is not a translation tool. Use Text to Speech for new words and Dubbing for a separate translation workflow. Voice Changer inputs are limited to five minutes and 100 MB in this app.
+
+### Record samples for voice cloning
+
+Open **Create a Voice → Instant Voice Clone**. Select **System default input** or a named microphone, including a built-in mic or a connected USB, headset, or audio-interface input exposed by macOS. Refresh the list after connecting a device if needed. The choice is local to Voice Desk and does not change the system default.
+
+Press **Record Microphone**, speak, then **Stop Recording**. Each finalized WAV is added to the sample list; you can record more samples, add audio files, play a sample, or remove it from the list. Removing a sample does not delete its local file. Samples stay on the Mac until you explicitly press **Create Voice Clone** after entering a name and confirming recording rights. Recording itself does not use ElevenLabs credits.
+
+The same microphone selector is available in Voice Changer. A sample is limited to five minutes. A disconnected selected microphone is not replaced silently with another device; the app preserves any valid recorded part and asks you to choose an available input. Microphone permission is requested only when recording starts.
 
 ### Import files and run a batch
 

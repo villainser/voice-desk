@@ -396,3 +396,23 @@
 "Available ElevenLabs voices" = "Available ElevenLabs voices";
 "Shared voice library" = "Shared voice library";
 "Available ElevenLabs voices not saved to My Voices." = "Available ElevenLabs voices not saved to My Voices.";
+
+"The selected microphone is unavailable. Connect it or choose another input." = "The selected microphone is unavailable. Connect it or choose another input.";
+"This microphone cannot record WAV audio. Choose another input." = "This microphone cannot record WAV audio. Choose another input.";
+"The microphone stopped responding. Choose an input and try again." = "The microphone stopped responding. Choose an input and try again.";
+"Recording could not start. Choose another microphone and try again." = "Recording could not start. Choose another microphone and try again.";
+"The selected microphone was disconnected. The recorded part will be kept." = "The selected microphone was disconnected. The recorded part will be kept.";
+"Recording stopped unexpectedly. The recorded part has been saved." = "Recording stopped unexpectedly. The recorded part has been saved.";
+"The recording is empty or could not be saved. Check the microphone and try again." = "The recording is empty or could not be saved. Check the microphone and try again.";
+"Record one or more samples, or add audio files. Samples stay on this Mac until you press Create Voice Clone." = "Record one or more samples, or add audio files. Samples stay on this Mac until you press Create Voice Clone.";
+"Remove sample from this list" = "Remove sample from this list";
+"No microphones available" = "No microphones available";
+"Microphone" = "Microphone";
+"System default input" = "System default input";
+"Disconnected microphone" = "Disconnected microphone";
+"Refresh microphones" = "Refresh microphones";
+"Saving recording…" = "Saving recording…";
+"Preparing microphone…" = "Preparing microphone…";
+"Microphone level" = "Microphone level";
+"Built-in and external microphones supported · up to 5 minutes per sample" = "Built-in and external microphones supported · up to 5 minutes per sample";
+"The recording is still being saved. Try quitting again when it finishes." = "The recording is still being saved. Try quitting again when it finishes.";

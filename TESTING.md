@@ -12,14 +12,15 @@ Native AAC/M4A tests need access to the macOS audio encoding service. A restrict
 
 ## Automated coverage
 
-The suites passed on 2026-10-12: 45 named API/core/integration/media test groups, the localization harness, and the catalog audit. These results use mock transports and local fixtures, not live ElevenLabs generation.
+The suites passed on 2026-10-12: 51 named API/core/integration/media/recording test groups, the localization harness, and the catalog audit. These results use mock transports and local fixtures, not live ElevenLabs generation. The current catalogs contain 415 matching English/Polish entries and cover 402 source keys.
 
 | Suite | Verification | Result |
 | --- | --- | --- |
 | [CoreTests](Tests/CoreTests.swift) | 13 groups: Unicode segmentation, encodings, output names, API error stop, resumable segments, source changes, no overwrite, pagination, credential redaction, real MP3/M4A/WAV decoding and encoding, expression request parameters, Voice Changer multipart, typed text | Passed with mocks and synthetic audio |
 | [APITests](Tests/APITests.swift) | 12 groups: model/language metadata, account allowance, voices and ownership, saved membership and pagination, shared search and add, edit/delete gating, cloning/design, Unicode TTS language parameters, transcription/isolation/effects, history, dubbing lifecycle and signed downloads, error and identifier handling | Passed with mocked responses |
 | [MediaImportTests](Tests/MediaImportTests.swift) | 10 groups: encodings and multilingual content, SRT/VTT parsing, folder/multiple import, symlinks and limits, Finder item-provider decoding, WAV metadata, player load/seek/stop, permission denial, pending-permission cancellation | Passed with local fixtures and permission mocks |
-| [IntegrationTests](Tests/IntegrationTests.swift) | 10 groups: credential-free initialization, missing-key handling, voice source filtering and selection, import without generation, deduplication, recoverable output collisions, preservation of invalid-source errors, independent interface/speech language, model capability mapping, Voice Changer source/output protection, cancellation | Passed with a local observable model and denied network transport |
+| [IntegrationTests](Tests/IntegrationTests.swift) | 11 groups: credential-free initialization, missing-key handling, voice source filtering and selection, import without generation, deduplication, recoverable output collisions, preservation of invalid-source errors, independent interface/speech language, model capability mapping, Voice Changer source/output protection, cancellation, finalized microphone sample routing and generation guards | Passed with a local observable model and denied network transport |
+| [RecordingTests](Tests/RecordingTests.swift) | 5 groups: named built-in/external/default input routing, permission and duplicate-start guards, meter updates, asynchronous finalization, automatic completion, unplug handling, cancellation, unavailable inputs and failed recordings | Passed with injected devices, capture callbacks, and synthetic WAV files |
 | [LocalizationTests](Tests/LocalizationTests.swift) | English/Polish lookup, immediate switching, preference storage, speech-language independence, placeholder formatting, missing-key fallback | Passed against native strings catalogs |
 | [Localization audit](Scripts/audit-localization.py) | Source-key coverage, matching catalogs, duplicate keys, and format argument consistency | Run by `test.sh` |
 
@@ -34,7 +35,7 @@ On 2026-10-12, the shipping application loaded its existing Keychain item and su
 
 No billable live generation, cloning, voice design, transformation, transcription, isolation, sound-effect, or dubbing test was performed for this version's automated suite. Voice quality, cross-language pronunciation, retained delivery, and translated output therefore remain unverified against the live service.
 
-The media tests do not record from a physical microphone or confirm audible playback through speakers. They test permission and cancellation state with injected responses, and playback loading/seeking with local audio. One existing remote preview was downloaded and entered playback in the native UI. Physical microphone selection, audible speaker output, and other preview URLs remain outside that check.
+The media and recording tests do not record from a physical microphone or confirm audible playback through speakers. They test input routing, permission, cancellation, and finalization with injected devices and callbacks, and playback loading/seeking with local audio. One existing remote preview was downloaded and entered playback in the native UI. Physical microphone selection, audible speaker output, and other preview URLs remain outside that check.
 
 Keychain behavior is implemented through the native Security framework. The automated suite does not modify a real saved credential. Interactive add, replace, removal, and any macOS Keychain prompts should be checked using a disposable test credential.
 
@@ -60,6 +61,12 @@ The updated shipping app also completed a read-only live refresh. Native UI chec
 
 All 45 named groups and the localization harness passed. The catalog audit passed with 396 matching English/Polish entries. CoreAudio codec tests initially failed under the filesystem sandbox and passed when rerun with access to macOS audio services; those tests use synthetic local audio. The arm64 release build and code-signature validation passed.
 
+## Microphone and settings changes — 2.0.2
+
+The complete suite passed with 51 named groups. Recording tests were rerun after tightening capture-error handling and passed all five groups. The release build, code-signature check, and Info.plist validation passed; the updated shipping executable was confirmed running.
+
+Native UI automation failed while connecting to the updated window with `Sky Computer Use native pipe closed before response`, including after resetting the automation session. The new panel layout and physical input-device menu were therefore not visually verified. No physical recording or live cloning request was made. Earlier UI observations above describe the preceding versions.
+
 ## Manual checks before a release
 
 Use a test account and knowingly authorize any charged operation. Start with the smallest input needed to verify the workflow.
@@ -67,7 +74,7 @@ Use a test account and knowingly authorize any charged operation. Start with the
 1. Build with `./build.sh build`, launch `build/Voice Desk.app`, and check the icon in Finder and the Dock.
 2. Validate a key with the required scopes. Check partial connection failures by using a key without one optional scope. Replace and remove only the test key.
 3. Generate short text, play it, and export each format. Repeat with a supported second language and mixed-language input. Changing the interface language must leave the selected speech language and original text unchanged.
-4. Import and record a short Voice Changer source. Confirm permission denial, explicit recording start/stop, conversion, playback, and source preservation.
+4. Import and record a short Voice Changer source. Confirm permission denial, explicit recording start/stop, conversion, playback, and source preservation. In Instant Voice Clone, record separate samples using a built-in microphone and an external input. Check the level meter, Stop/finalization, preview, sample removal, device unplugging, and that no upload occurs until Create Voice Clone is pressed. In Voice settings, confirm supported parameters are visible and disabled until Override voice defaults is enabled.
 5. Exercise voice previews, account and shared-library searches, creation, and ownership-gated actions with disposable voices. Confirm destructive dialogs before deletion.
 6. Exercise transcription, effects, isolation, history, and dubbing only when the account permits them. For dubbing, check status refresh and an expired result URL without creating a second paid project.
 7. Import TXT/SRT/VTT files and a folder; run, cancel, and retry a batch. Confirm output naming, collision handling, source-change errors, reuse of completed segments, and no automatic generation after import.

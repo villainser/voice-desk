@@ -123,7 +123,7 @@ struct MediaImportTests {
 
         var permissions = 0
         let recordingFolder = root.appendingPathComponent("Recordings", isDirectory: true)
-        let deniedRecorder = MicrophoneRecorder(recordingDirectory: recordingFolder, permissionRequester: { permissions += 1; return false })
+        let deniedRecorder = MicrophoneRecorder(recordingDirectory: recordingFolder, permissionRequester: { permissions += 1; return false }, deviceProvider: { [AudioInputDevice(id: "builtin", name: "Built-in")] })
         try check(permissions == 0, "Constructing recorder must not request microphone")
         await deniedRecorder.start()
         try check(permissions == 1 && !deniedRecorder.isRecording && deniedRecorder.error != nil, "Denied microphone must have a recoverable error")
@@ -131,7 +131,7 @@ struct MediaImportTests {
         print("PASS 9: explicit-only microphone permission and denial (mocked)")
 
         let gate = PermissionGate()
-        let cancelledRecorder = MicrophoneRecorder(recordingDirectory: recordingFolder, permissionRequester: { await gate.request() })
+        let cancelledRecorder = MicrophoneRecorder(recordingDirectory: recordingFolder, permissionRequester: { await gate.request() }, deviceProvider: { [AudioInputDevice(id: "builtin", name: "Built-in")] })
         let pending = Task { await cancelledRecorder.start() }
         while gate.waiter == nil { await Task.yield() }
         await cancelledRecorder.start()

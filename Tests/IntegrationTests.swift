@@ -49,6 +49,25 @@ private final class LocalGate {
     func release() { wait?.resume(); wait = nil }
 }
 
+private final class CloneCaptureStub: MicrophoneCaptureBackend {
+    var url: URL?
+    var completion: ((Error?) -> Void)?
+    func start(deviceID: String, url: URL, durationLimit: Double, started: @escaping () -> Void,
+               progress: @escaping (Double, Double) -> Void, finished: @escaping (Error?) -> Void) {
+        self.url = url; self.completion = finished; started()
+    }
+    func stop() {}
+    func finish() throws { try wave().write(to: url!); completion?(nil) }
+}
+
+@MainActor private func waitUntil(_ predicate: () -> Bool) async throws {
+    let deadline = Date().addingTimeInterval(3)
+    while !predicate() {
+        guard Date() < deadline else { throw IntegrationFailure(message: "Recording state timed out") }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+}
+
 @main
 struct IntegrationTests {
     @MainActor static func main() async throws {
@@ -111,6 +130,30 @@ struct IntegrationTests {
         voiceModel.applyVoiceCatalog([external]); voiceModel.setVoiceSource(.saved)
         try expect(voiceModel.voiceID.isEmpty && voiceModel.pickerVoices.isEmpty, "empty saved filter must not keep a hidden external selection")
         ok("voice source selection across TTS, Voice Changer, batch, search, and empty lists")
+
+        let capture = CloneCaptureStub()
+        let recorder = MicrophoneRecorder(recordingDirectory: root.appendingPathComponent("Recorded"), permissionRequester: { true },
+            deviceProvider: { [AudioInputDevice(id: "usb", name: "USB input")] }, backendFactory: { capture })
+        let cloneModel = AppModel(recorder: recorder)
+        cloneModel.hasKey = true; cloneModel.voiceID = "test_voice"; cloneModel.sourceAudio = first
+        cloneModel.recordCloneSample()
+        try await waitUntil { recorder.isRecording }
+        try expect(!cloneModel.canGenerate, "generation must be unavailable during recording")
+        cloneModel.cloneConsent = true; cloneModel.cloneSamples = [first]
+        cloneModel.cloneVoice()
+        try expect(!cloneModel.busy, "Create Voice Clone must not send an unfinished recording")
+        cloneModel.page = .speech // Completion follows the recording target, not the current page.
+        cloneModel.stopRecording()
+        try expect(cloneModel.cloneSamples == [first] && recorder.isFinishing, "sample list must wait for finalization")
+        try capture.finish(); try await waitUntil { !recorder.isBusy }
+        let sample = capture.url!
+        try expect(cloneModel.cloneSamples == [first, sample] && cloneModel.sourceAudio == first, "recorded clone sample appends without replacing Voice Changer source")
+        cloneModel.removeCloneSample(sample)
+        try expect(cloneModel.cloneSamples == [first] && FileManager.default.fileExists(atPath: sample.path), "removing a sample is list-only and must preserve the local file")
+        cloneModel.record(); try await waitUntil { recorder.isRecording }
+        cloneModel.stopRecording(); try capture.finish(); try await waitUntil { !recorder.isBusy }
+        try expect(cloneModel.sourceAudio == capture.url && cloneModel.cloneSamples == [first], "Voice Changer recording must not enter the cloning sample list")
+        ok("microphone cloning samples, finalization, generation gating, and separate Voice Changer routing")
 
         model.page = .batch
         model.importJobs([first, second])

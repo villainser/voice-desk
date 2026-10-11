@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.2 — 2026-10-12
+
+- Replaced the nested Voice settings disclosure with a visible panel. Supported controls remain visible and dimmed until Override voice defaults is enabled.
+- Added microphone sample recording, playback, and list removal to Instant Voice Clone. Multiple recorded or imported samples can be combined without uploading anything until Create Voice Clone is pressed.
+- Added a named input-device picker to cloning and Voice Changer, with system-default, built-in, and external inputs discovered through AVFoundation. The app remembers the selected input without changing macOS audio settings.
+- Added asynchronous WAV finalization, hot-unplug handling, local sample preservation, and generation guards during recording.
+
 ## 2.0.1 — 2026-10-12
 
 - Fixed My Voices showing every accessible voice, including unsaved defaults. Membership now comes from the paginated `voice_type=saved` API query. Saved library voices and defaults explicitly added to a collection remain in My Voices.

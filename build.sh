@@ -23,8 +23,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>Voice Desk</string>
 <key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>CFBundleLocalizations</key><array><string>en</string><string>pl</string></array>
-<key>CFBundleVersion</key><string>5</string>
-<key>CFBundleShortVersionString</key><string>2.0.1</string>
+<key>CFBundleVersion</key><string>6</string>
+<key>CFBundleShortVersionString</key><string>2.0.2</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
