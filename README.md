@@ -40,8 +40,8 @@ API requests use your ElevenLabs account allowance and any applicable billing ru
 | Text to Speech | Type, paste, or import text; choose a voice and model; generate spoken audio |
 | Voice Changer | Import speech or record through the microphone, then convert it to a target voice |
 | Sound Effects | Describe a sound, optionally choose a duration and looping, then generate it |
-| My Voices | Search voices available to your account, preview them, and select a voice |
-| ElevenLabs Voices | Search the shared library and add an available voice to your account |
+| My Voices | Search your saved, cloned, and created voices, preview them, and select a voice |
+| ElevenLabs Voices | Select unsaved available voices or search the shared library to add more voices |
 | Create a Voice | Design a voice from a description or submit samples for supported instant cloning |
 | Speech to Text | Transcribe audio with ElevenLabs and save the resulting text |
 | Audio Isolation | Send audio to ElevenLabs to isolate speech |
@@ -49,7 +49,7 @@ API requests use your ElevenLabs account allowance and any applicable billing ru
 | Audio Library | Play and export local results or retrieve recordings from ElevenLabs history |
 | Batch Jobs | Process imported text or audio files with per-file status and an explicit start action |
 
-Voice editing and deletion are available only when the API explicitly confirms ownership. My Voices includes voices accessible to your account, which may include shared or saved voices; it does not mean that you created every listed voice. Some operations require additional key permissions, account features, or verification by ElevenLabs.
+Voice editing and deletion are available only when the API explicitly confirms ownership. My Voices follows the API’s saved-voice list, including clones, created voices, saved library voices, and defaults explicitly added to a collection. Unsaved defaults appear under ElevenLabs Voices. The same source filter is available in Text to Speech, Voice Changer, and Batch Jobs. Saved membership does not imply personal ownership. Some operations require additional key permissions, account features, or verification by ElevenLabs.
 
 ### Generate speech from text
 

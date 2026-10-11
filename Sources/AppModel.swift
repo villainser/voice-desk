@@ -77,6 +77,8 @@ final class AppModel: ObservableObject {
     @Published var account: AccountSubscription?
     @Published var accountDate: Date?
     @Published var voices: [Voice] = []
+    @Published var voiceSource: VoiceSource = .saved
+    @Published var discoverLibrary = false
     @Published var models: [APIModel] = []
     @Published var voiceID = ""
     @Published var modelID = "eleven_multilingual_v2"
@@ -148,10 +150,17 @@ final class AppModel: ObservableObject {
     var conversionModels: [APIModel] { models.filter { $0.can_do_voice_conversion == true } }
     var availableLanguages: [APILanguage] { selectedModel?.languages ?? [] }
     var supportsExplicitLanguage: Bool { selectedModel?.supportsExplicitLanguage == true }
+    var savedVoices: [Voice] { voices.filter { VoiceSource.saved.includes($0) } }
+    var elevenLabsVoices: [Voice] { voices.filter { VoiceSource.elevenLabs.includes($0) } }
+    var pickerVoices: [Voice] { voices.filter { voiceSource.includes($0) } }
+    var needsVoiceClassification: Bool { voices.contains { $0.isSaved == nil } }
     var visibleVoices: [Voice] {
-        voices.filter { (voiceSearch.isEmpty || ($0.name + " " + ($0.description ?? "") + " " + $0.languageSummary).localizedCaseInsensitiveContains(voiceSearch)) && (voiceCategory.isEmpty || $0.category == voiceCategory) }
+        savedVoices.filter { (voiceSearch.isEmpty || ($0.name + " " + ($0.description ?? "") + " " + $0.languageSummary).localizedCaseInsensitiveContains(voiceSearch)) && (voiceCategory.isEmpty || $0.category == voiceCategory) }
     }
-    var voiceCategories: [String] { Set(voices.compactMap(\.category)).sorted() }
+    var voiceCategories: [String] { Set(savedVoices.compactMap(\.category)).sorted() }
+    var visibleElevenLabsVoices: [Voice] {
+        elevenLabsVoices.filter { sharedSearch.isEmpty || ($0.name + " " + ($0.description ?? "") + " " + $0.languageSummary).localizedCaseInsensitiveContains(sharedSearch) }
+    }
     var readyJobs: [FileItem] { jobs.filter { $0.state == .ready || $0.state == .failed } }
     var canGenerate: Bool { hasKey && !voiceID.isEmpty && !busy }
     var isConversion: Bool { page == .changer || (page == .batch && batchAudio) }
@@ -172,6 +181,7 @@ final class AppModel: ObservableObject {
         guard !previewMode else { return }
         let defaults = UserDefaults.standard
         voiceID = defaults.string(forKey: "voiceID") ?? ""
+        voiceSource = VoiceSource(rawValue: defaults.string(forKey: "voiceSource") ?? "saved") ?? .saved
         modelID = defaults.string(forKey: "modelID") ?? "eleven_multilingual_v2"
         conversionModelID = defaults.string(forKey: "conversionModelID") ?? "eleven_multilingual_sts_v2"
         speechLanguage = defaults.string(forKey: "speechLanguage") ?? ""
@@ -187,12 +197,14 @@ final class AppModel: ObservableObject {
             let key = await Task.detached { KeyStore.read() }.value ?? ""
             self?.apiKey = key; self?.keyDraft = key; self?.hasKey = !key.isEmpty
             self?.connection = key.isEmpty ? "Not connected" : "Key loaded · connection not yet checked"
+            if !key.isEmpty { self?.refreshVoices() }
         }
     }
     func persistPreferences() {
         guard !previewMode else { return }
         let defaults = UserDefaults.standard
         defaults.set(voiceID, forKey: "voiceID"); defaults.set(modelID, forKey: "modelID")
+        defaults.set(voiceSource.rawValue, forKey: "voiceSource")
         defaults.set(conversionModelID, forKey: "conversionModelID")
         defaults.set(speechLanguage, forKey: "speechLanguage"); defaults.set(format.rawValue, forKey: "format")
         defaults.set(try? JSONEncoder().encode(expression), forKey: "expression")
@@ -207,6 +219,8 @@ final class AppModel: ObservableObject {
         run("Saving API key") { [self] in
             try await Task.detached { try KeyStore.save(replacement) }.value
             apiKey = replacement; hasKey = true; account = nil; accountDate = nil
+            voices = []; sharedVoices = []; voiceID = ""
+            persistPreferences()
             connection = "Key saved · validate the connection"
         }
     }
@@ -226,12 +240,11 @@ final class AppModel: ObservableObject {
             // Endpoints have separate scopes. Preserve useful data when one scope is absent.
             var successes = 0, failures: [String] = []
             do { models = try await client.models(); successes += 1 } catch { failures.append(error.localizedDescription) }
-            do { voices = try await client.voices(); successes += 1 } catch { failures.append(error.localizedDescription) }
+            do { applyVoiceCatalog(try await client.voiceCatalog()); successes += 1 } catch { failures.append(error.localizedDescription) }
             do { account = try await client.subscription(); accountDate = Date(); successes += 1 } catch { account = nil; accountDate = nil; failures.append(error.localizedDescription) }
             connection = successes > 0 ? "Connected" : "Connection failed"
             if !ttsModels.contains(where: { $0.id == modelID }), let first = ttsModels.first { modelID = first.id }
             if !conversionModels.contains(where: { $0.id == conversionModelID }), let first = conversionModels.first { conversionModelID = first.id }
-            if !voices.contains(where: { $0.id == voiceID }), let first = voices.first { voiceID = first.id }
             if !availableLanguages.contains(where: { $0.id == speechLanguage }) { speechLanguage = "" }
             if !failures.isEmpty { self.error = failures.joined(separator: "\n") }
             persistPreferences()
@@ -267,7 +280,25 @@ final class AppModel: ObservableObject {
         if modelID == "eleven_v3" { expression.stability = (expression.stability * 2).rounded() / 2 }
         persistPreferences()
     }
-    func chooseVoice(_ voice: Voice) { voiceID = voice.id; persistPreferences(); notice = L("Selected voice: %@", voice.name) }
+    func setVoiceSource(_ source: VoiceSource) {
+        voiceSource = source
+        if !pickerVoices.contains(where: { $0.id == voiceID }) { voiceID = pickerVoices.first?.id ?? "" }
+        persistPreferences()
+    }
+    func applyVoiceCatalog(_ loaded: [Voice]) {
+        voices = loaded
+        // Preserve the selected voice on refresh and expose its actual source.
+        if let voice = selectedVoice, !voiceSource.includes(voice) {
+            voiceSource = voice.isSaved == true ? .saved : .elevenLabs
+        } else if voiceID.isEmpty {
+            voiceID = pickerVoices.first?.id ?? ""
+        }
+        if !voiceCategories.contains(voiceCategory) { voiceCategory = "" }
+    }
+    func chooseVoice(_ voice: Voice) {
+        voiceSource = voice.isSaved == true ? .saved : (voice.isSaved == false ? .elevenLabs : .all)
+        voiceID = voice.id; persistPreferences(); notice = L("Selected voice: %@", voice.name)
+    }
     func selectFiles(audio: Bool, multiple: Bool = false, folders: Bool = false) -> [URL] {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true; panel.canChooseDirectories = folders
@@ -443,12 +474,12 @@ final class AppModel: ObservableObject {
         }
     }
     func refreshAfterMutation() async {
-        do { voices = try await client.voices(); persistPreferences() }
+        do { applyVoiceCatalog(try await client.voiceCatalog()); persistPreferences() }
         catch { self.error = L("The account change succeeded, but the voice list could not refresh: %@", safeError(error)) }
     }
     func refreshVoices() {
         guard requireKey() else { return }
-        run("Loading voices") { [self] in voices = try await client.voices(); persistPreferences() }
+        run("Loading voices") { [self] in applyVoiceCatalog(try await client.voiceCatalog()); persistPreferences() }
     }
     func searchShared(more: Bool = false) {
         guard requireKey() else { return }

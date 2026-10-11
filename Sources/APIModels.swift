@@ -35,6 +35,25 @@ struct VoiceLanguage: Codable, Hashable {
     var preview_url: String?
 }
 
+enum VoiceSource: String, CaseIterable, Identifiable {
+    case saved, elevenLabs, all
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .saved: return L("My Voices")
+        case .elevenLabs: return L("ElevenLabs Voices")
+        case .all: return L("All voices")
+        }
+    }
+    func includes(_ voice: Voice) -> Bool {
+        switch self {
+        case .saved: return voice.isSaved == true
+        case .elevenLabs: return voice.isSaved == false
+        case .all: return true
+        }
+    }
+}
+
 struct Voice: Codable, Identifiable, Hashable {
     let voice_id: String
     var name: String
@@ -47,6 +66,9 @@ struct Voice: Codable, Identifiable, Hashable {
     var available_for_tiers: [String]?
     var permission_on_resource: String?
     var is_owner: Bool?
+    // Local membership from GET /v2/voices?voice_type=saved, never ownership.
+    // nil marks an old cache or an unclassified API response.
+    var isSaved: Bool?
     var id: String { voice_id }
     // Do not infer ownership from category, presence in /voices, or a local create.
     var canEdit: Bool { is_owner == true && category != "premade" }
@@ -59,7 +81,7 @@ struct Voice: Codable, Identifiable, Hashable {
     init(voice_id: String, name: String) { self.voice_id = voice_id; self.name = name }
     enum CodingKeys: String, CodingKey {
         case voice_id, name, category, description, preview_url, labels, verified_languages
-        case high_quality_base_model_ids, available_for_tiers, permission_on_resource, is_owner
+        case high_quality_base_model_ids, available_for_tiers, permission_on_resource, is_owner, isSaved
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -74,6 +96,7 @@ struct Voice: Codable, Identifiable, Hashable {
         available_for_tiers = try c.decodeIfPresent([String].self, forKey: .available_for_tiers)
         permission_on_resource = try c.decodeIfPresent(String.self, forKey: .permission_on_resource)
         is_owner = try c.decodeIfPresent(Bool.self, forKey: .is_owner)
+        isSaved = try c.decodeIfPresent(Bool.self, forKey: .isSaved)
     }
 }
 struct VoicePage: Decodable {

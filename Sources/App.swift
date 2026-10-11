@@ -56,7 +56,7 @@ struct ContentView: View {
                     Spacer()
                     if model.recorder.isRecording { Button(L("Stop Recording"), action: model.record).tint(.red) }
                     if model.busy { Button(L("Cancel"), action: model.cancel).keyboardShortcut(.cancelAction) }
-                    Text("Voice Desk 2.0").font(.caption2).foregroundStyle(.tertiary)
+                    Text("Voice Desk 2.0.1").font(.caption2).foregroundStyle(.tertiary)
                 }.padding(12).background(.bar)
             }.navigationTitle(model.page.title)
             .toolbar {
@@ -158,10 +158,18 @@ struct ContentView: View {
                 GroupBox {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack { Text(L("Voice")).font(.headline); Spacer(); Button { model.page = .myVoices } label: { Image(systemName: "person.crop.rectangle.stack") }.help(L("Browse My Voices")) }
+                        Picker(L("Voice source"), selection: Binding(get: { model.voiceSource }, set: model.setVoiceSource)) {
+                            ForEach(VoiceSource.allCases) { Text($0.title).tag($0) }
+                        }
                         Picker(L("Voice"), selection: $model.voiceID) {
-                            if !model.voices.contains(where: { $0.id == model.voiceID }) { Text(model.voiceID.isEmpty ? L("Choose a voice") : model.voiceID).tag(model.voiceID) }
-                            ForEach(model.voices) { Text($0.name).tag($0.id) }
+                            if !model.pickerVoices.contains(where: { $0.id == model.voiceID }) { Text(L("Choose a voice")).tag(model.voiceID) }
+                            ForEach(model.pickerVoices) { Text($0.name).tag($0.id) }
                         }.labelsHidden()
+                        Text(L("%@ voices in this list", String(model.pickerVoices.count))).font(.caption).foregroundStyle(.secondary)
+                        if model.pickerVoices.isEmpty || model.needsVoiceClassification {
+                            Text(L("Refresh to load voices for this source, or choose another source.")).font(.caption).foregroundStyle(.secondary)
+                            Button(L("Refresh"), action: model.refreshVoices)
+                        }
                         if let voice = model.selectedVoice {
                             HStack {
                                 Text(voice.languageSummary.isEmpty ? (voice.category ?? "") : voice.languageSummary).font(.caption).foregroundStyle(.secondary)
@@ -304,68 +312,84 @@ struct ContentView: View {
     }
     private var myVoicesView: some View {
         VStack(alignment: .leading, spacing: 16) {
-            heading(L("Your account voices"), L("Voices returned by your account: saved, cloned, designed and available defaults. Being listed here does not imply personal ownership."), icon: "person.crop.rectangle.stack")
+            heading(L("My Voices"), L("Voices saved, cloned or created in your account. Unsaved ElevenLabs defaults appear separately."), icon: "person.crop.rectangle.stack")
             HStack {
                 TextField(L("Search voices"), text: $model.voiceSearch).textFieldStyle(.roundedBorder)
                 Picker(L("Category"), selection: $model.voiceCategory) { Text(L("All categories")).tag(""); ForEach(model.voiceCategories, id: \.self) { Text($0).tag($0) } }.frame(width: 170)
                 Button(L("Refresh"), action: model.refreshVoices).disabled(model.busy)
             }
             if model.visibleVoices.isEmpty { empty(L("No voices to show"), L("Refresh your account voices, change the search, or add a voice from ElevenLabs Voices."), "person.crop.circle.badge.plus") }
-            else {
-                ScrollView {
-                    LazyVStack(spacing: 10) { ForEach(model.visibleVoices) { voice in
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Image(systemName: "person.crop.circle.fill").font(.title).foregroundStyle(.tint)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(voice.name).font(.headline)
-                                    Text([voice.category, voice.languageSummary.isEmpty ? nil : voice.languageSummary].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button { model.previewVoice(url: voice.preview_url) } label: { Image(systemName: "play.circle") }.help(L("Play existing voice preview")).disabled(voice.preview_url == nil)
-                                Button(model.voiceID == voice.id ? L("Selected") : L("Select")) { model.chooseVoice(voice) }.disabled(model.voiceID == voice.id)
-                                if voice.canEdit {
-                                    Menu {
-                                        Button(L("Edit Metadata")) { model.editName = voice.name; model.editDescription = voice.description ?? ""; model.editingVoice = voice }
-                                        Button(L("Delete Voice"), role: .destructive) { model.deleteVoice(voice) }
-                                    } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).frame(width: 24)
-                                }
-                            }
-                            if let description = voice.description, !description.isEmpty { Text(description).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
-                            if voice.is_owner == true { Text(L("Ownership confirmed by ElevenLabs")).font(.caption2).foregroundStyle(.secondary) }
-                        }.padding(14).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
-                    } }
-                }.disabled(model.busy)
-            }
+            else { accountVoiceRows(model.visibleVoices) }
         }
+    }
+    private func accountVoiceRows(_ voices: [Voice]) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 10) { ForEach(voices) { voice in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Image(systemName: "person.crop.circle.fill").font(.title).foregroundStyle(.tint)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(voice.name).font(.headline)
+                            Text([voice.category, voice.languageSummary.isEmpty ? nil : voice.languageSummary].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button { model.previewVoice(url: voice.preview_url) } label: { Image(systemName: "play.circle") }.help(L("Play existing voice preview")).disabled(voice.preview_url == nil)
+                        Button(model.voiceID == voice.id ? L("Selected") : L("Select")) { model.chooseVoice(voice) }.disabled(model.voiceID == voice.id)
+                        if voice.canEdit {
+                            Menu {
+                                Button(L("Edit Metadata")) { model.editName = voice.name; model.editDescription = voice.description ?? ""; model.editingVoice = voice }
+                                Button(L("Delete Voice"), role: .destructive) { model.deleteVoice(voice) }
+                            } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).frame(width: 24)
+                        }
+                    }
+                    if let description = voice.description, !description.isEmpty { Text(description).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
+                    if voice.is_owner == true { Text(L("Ownership confirmed by ElevenLabs")).font(.caption2).foregroundStyle(.secondary) }
+                }.padding(14).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+            } }
+        }.disabled(model.busy)
     }
     private var discoverView: some View {
         VStack(alignment: .leading, spacing: 16) {
-            heading(L("Find a voice on ElevenLabs"), L("Browse the shared voice library. Preview existing samples, then add a voice to your account before generating."), icon: "globe")
-            HStack {
-                TextField(L("Search the voice library"), text: $model.sharedSearch).textFieldStyle(.roundedBorder).onSubmit { model.searchShared() }
-                TextField(L("Language filter (optional)"), text: $model.sharedLanguage).textFieldStyle(.roundedBorder).frame(width: 160)
-                Button(L("Search")) { model.searchShared() }.buttonStyle(.borderedProminent).disabled(model.busy)
-            }
-            if model.sharedVoices.isEmpty { empty(L("Explore the voice library"), L("Search to load voices from ElevenLabs. Voice availability and rates depend on your account and the voice."), "globe") }
-            else {
-                ScrollView { LazyVStack(spacing: 10) { ForEach(model.sharedVoices) { voice in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(voice.name).font(.headline)
-                                Text([voice.language, voice.accent, voice.gender, voice.category].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+            heading(L("Find a voice on ElevenLabs"), L("Choose an available voice or browse the shared library to save more voices to your account."), icon: "globe")
+            Picker(L("Browse voices"), selection: $model.discoverLibrary) {
+                Text(L("Available ElevenLabs voices")).tag(false)
+                Text(L("Shared voice library")).tag(true)
+            }.pickerStyle(.segmented).labelsHidden()
+            if !model.discoverLibrary {
+                HStack {
+                    TextField(L("Search voices"), text: $model.sharedSearch).textFieldStyle(.roundedBorder)
+                    Button(L("Refresh"), action: model.refreshVoices).disabled(model.busy)
+                }
+                Text(L("Available ElevenLabs voices not saved to My Voices.")).font(.caption).foregroundStyle(.secondary)
+                if model.visibleElevenLabsVoices.isEmpty {
+                    empty(L("No voices to show"), L("Refresh to load voices for this source, or choose another source."), "globe")
+                } else { accountVoiceRows(model.visibleElevenLabsVoices) }
+            } else {
+                HStack {
+                    TextField(L("Search the voice library"), text: $model.sharedSearch).textFieldStyle(.roundedBorder).onSubmit { model.searchShared() }
+                    TextField(L("Language filter (optional)"), text: $model.sharedLanguage).textFieldStyle(.roundedBorder).frame(width: 160)
+                    Button(L("Search")) { model.searchShared() }.buttonStyle(.borderedProminent).disabled(model.busy)
+                }
+                if model.sharedVoices.isEmpty { empty(L("Explore the voice library"), L("Search to load voices from ElevenLabs. Voice availability and rates depend on your account and the voice."), "globe") }
+                else {
+                    ScrollView { LazyVStack(spacing: 10) { ForEach(model.sharedVoices) { voice in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(voice.name).font(.headline)
+                                    Text([voice.language, voice.accent, voice.gender, voice.category].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button { model.previewVoice(url: voice.preview_url) } label: { Label(L("Preview"), systemImage: "play.circle") }.disabled(voice.preview_url == nil)
+                                Button(voice.canAdd ? L("Add to My Voices") : L("Added")) { model.addShared(voice) }.disabled(!voice.canAdd)
                             }
-                            Spacer()
-                            Button { model.previewVoice(url: voice.preview_url) } label: { Label(L("Preview"), systemImage: "play.circle") }.disabled(voice.preview_url == nil)
-                            Button(voice.canAdd ? L("Add to My Voices") : L("Added")) { model.addShared(voice) }.disabled(!voice.canAdd)
-                        }
-                        if let description = voice.description { Text(description).font(.callout).foregroundStyle(.secondary) }
-                        if voice.free_users_allowed == false { Text(L("This voice is unavailable to free accounts.")).font(.caption).foregroundStyle(.secondary) }
-                        if let rate = voice.rate { Text(L("API-reported voice rate: %@", String(rate))).font(.caption2).foregroundStyle(.secondary) }
-                    }.padding(14).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
-                } } }.disabled(model.busy)
-                if model.sharedMore { Button(L("Load More")) { model.searchShared(more: true) }.disabled(model.busy) }
+                            if let description = voice.description { Text(description).font(.callout).foregroundStyle(.secondary) }
+                            if voice.free_users_allowed == false { Text(L("This voice is unavailable to free accounts.")).font(.caption).foregroundStyle(.secondary) }
+                            if let rate = voice.rate { Text(L("API-reported voice rate: %@", String(rate))).font(.caption2).foregroundStyle(.secondary) }
+                        }.padding(14).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+                    } } }.disabled(model.busy)
+                    if model.sharedMore { Button(L("Load More")) { model.searchShared(more: true) }.disabled(model.busy) }
+                }
             }
         }
     }

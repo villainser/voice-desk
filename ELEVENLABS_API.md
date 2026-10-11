@@ -10,6 +10,10 @@ A valid key does not necessarily grant access to every feature. Keys may have re
 
 `GET /v1/user/subscription` provides the displayed subscription tier, period usage, allowance, voice slots, and cloning entitlement when returned. The remaining allowance is the reported `character_limit` minus `character_count`, clamped at zero. It is not an estimate of generation cost or a guarantee that another endpoint is permitted. [Subscription reference](https://elevenlabs.io/docs/api-reference/user/subscription/get)
 
+## Voice list membership
+
+The client fetches all available voices and the paginated `GET /v2/voices?voice_type=saved` list. My Voices uses saved membership, not the unfiltered available list or a category-based ownership guess. ElevenLabs Voices shows the remaining available voices; shared-library discovery is a separate tab. A default explicitly saved to a collection belongs in My Voices, as does a saved community voice. Editing and deletion still require `is_owner=true`. Old caches without membership are refreshed on launch; a failed saved lookup does not classify the entire catalog as external. [List voices contract](https://elevenlabs.io/docs/api-reference/voices/search), checked 2026-10-12.
+
 ## Capability matrix
 
 “Contract tested” means a mock transport verified the method, route, representative parameters, and decoding. It does not mean an operation was performed on a live ElevenLabs account. The UI workflows are in [AppModel.swift](Sources/AppModel.swift).

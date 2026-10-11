@@ -90,6 +90,41 @@ private func decode<T: Decodable>(_ type: T.Type, _ value: String) throws -> T {
         do { _ = try await client.voices(); throw AppFailure("pagination should fail") } catch let e as AppFailure { try expect(e.message != "pagination should fail", "missing pagination cursor rejected") }
         ok("account voice pagination and ownership controls")
 
+        var savedPages = 0
+        APIStub.handler = { req in
+            try expect(req.url?.path == "/v2/voices", "catalog endpoint")
+            let query = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)!.queryItems!
+            if query.contains(.init(name: "voice_type", value: "saved")) {
+                savedPages += 1
+                if savedPages == 1 {
+                    return (200, json("""
+                    {"voices":[{"voice_id":"own","name":"Clone","category":"cloned","is_owner":true},{"voice_id":"added","name":"Saved library","category":"professional","is_owner":false}],"has_more":true,"next_page_token":"saved-page2"}
+                    """))
+                }
+                try expect(query.contains(.init(name: "next_page_token", value: "saved-page2")), "saved scope retained on later pages")
+                return (200, json("""
+                {"voices":[{"voice_id":"collected","name":"Collected default","category":"premade","is_owner":false}],"has_more":false}
+                """))
+            }
+            return (200, json("""
+            {"voices":[{"voice_id":"default","name":"Default","category":"premade"},{"voice_id":"own","name":"Clone","category":"cloned","is_owner":true},{"voice_id":"added","name":"Saved library","category":"professional","is_owner":false}],"has_more":false}
+            """))
+        }
+        let catalog = try await client.voiceCatalog()
+        try expect(catalog.count == 4 && savedPages == 2, "catalog merges all pages and newly saved voices")
+        try expect(Set(catalog.filter { VoiceSource.saved.includes($0) }.map(\.id)) == ["own", "added", "collected"], "My Voices follows saved membership, including collected defaults")
+        try expect(catalog.filter { VoiceSource.elevenLabs.includes($0) }.map(\.id) == ["default"], "unsaved default excluded from My Voices")
+        try expect(catalog.first { $0.id == "added" }?.canEdit == false, "saved membership does not grant ownership")
+        let cached = try JSONDecoder().decode([Voice].self, from: JSONEncoder().encode(catalog))
+        try expect(cached == catalog && unknown.isSaved == nil && !VoiceSource.saved.includes(unknown) && !VoiceSource.elevenLabs.includes(unknown), "membership cache round-trip and unclassified migration")
+        APIStub.handler = { req in
+            let saved = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)!.queryItems!.contains(.init(name: "voice_type", value: "saved"))
+            return saved ? (403, json("{}")) : (200, json("{\"voices\":[],\"has_more\":false}"))
+        }
+        do { _ = try await client.voiceCatalog(); throw AppFailure("classification should fail") }
+        catch let e as AppFailure { try expect(e.message != "classification should fail", "failed saved lookup must not classify every voice as external") }
+        ok("saved voice filtering, paginated membership, cache migration, and failure isolation")
+
         APIStub.handler = { req in
             try expect(req.url?.path == "/v1/shared-voices", "shared library endpoint")
             let query = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)!.queryItems!

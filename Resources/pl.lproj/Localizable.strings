@@ -385,3 +385,14 @@
 "Removing API key" = "Usuwanie klucza API";
 "Clear the audio queue before importing a text batch." = "Wyczyść kolejkę audio przed zaimportowaniem tekstów.";
 "Could not remove the API key from Keychain (%d)." = "Nie można usunąć klucza API z Pęku kluczy (%d).";
+
+"All voices" = "Wszystkie głosy";
+"Voice source" = "Źródło głosów";
+"%@ voices in this list" = "Liczba głosów na liście: %@";
+"Refresh to load voices for this source, or choose another source." = "Odśwież listę głosów lub wybierz inne źródło.";
+"Voices saved, cloned or created in your account. Unsaved ElevenLabs defaults appear separately." = "Głosy zapisane, sklonowane lub utworzone na Twoim koncie. Niezapisane głosy domyślne ElevenLabs mają osobną listę.";
+"Choose an available voice or browse the shared library to save more voices to your account." = "Wybierz dostępny głos lub przeglądaj wspólną bibliotekę, aby zapisać kolejne głosy na swoim koncie.";
+"Browse voices" = "Przeglądaj głosy";
+"Available ElevenLabs voices" = "Dostępne głosy ElevenLabs";
+"Shared voice library" = "Wspólna biblioteka głosów";
+"Available ElevenLabs voices not saved to My Voices." = "Dostępne głosy ElevenLabs, których nie zapisano w Moich głosach.";

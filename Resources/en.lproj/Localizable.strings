@@ -385,3 +385,14 @@
 "Removing API key" = "Removing API key";
 "Clear the audio queue before importing a text batch." = "Clear the audio queue before importing a text batch.";
 "Could not remove the API key from Keychain (%d)." = "Could not remove the API key from Keychain (%d).";
+
+"All voices" = "All voices";
+"Voice source" = "Voice source";
+"%@ voices in this list" = "%@ voices in this list";
+"Refresh to load voices for this source, or choose another source." = "Refresh to load voices for this source, or choose another source.";
+"Voices saved, cloned or created in your account. Unsaved ElevenLabs defaults appear separately." = "Voices saved, cloned or created in your account. Unsaved ElevenLabs defaults appear separately.";
+"Choose an available voice or browse the shared library to save more voices to your account." = "Choose an available voice or browse the shared library to save more voices to your account.";
+"Browse voices" = "Browse voices";
+"Available ElevenLabs voices" = "Available ElevenLabs voices";
+"Shared voice library" = "Shared voice library";
+"Available ElevenLabs voices not saved to My Voices." = "Available ElevenLabs voices not saved to My Voices.";

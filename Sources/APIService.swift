@@ -72,10 +72,11 @@ struct ElevenClient {
     func subscription() async throws -> AccountSubscription {
         try await decode(AccountSubscription.self, from: request(path: "/v1/user/subscription"))
     }
-    func voices() async throws -> [Voice] {
+    func voices(savedOnly: Bool = false) async throws -> [Voice] {
         var voices: [Voice] = [], token: String?, seen: Set<String> = []
         repeat {
             var query = [URLQueryItem(name: "page_size", value: "100")]
+            if savedOnly { query.append(.init(name: "voice_type", value: "saved")) }
             if let token { query.append(URLQueryItem(name: "next_page_token", value: token)) }
             let page = try await decode(VoicePage.self, from: request(path: "/v2/voices", query: query))
             voices += page.voices
@@ -87,6 +88,18 @@ struct ElevenClient {
         } while token != nil
         var ids: Set<String> = []
         return voices.filter { ids.insert($0.id).inserted }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+    func voiceCatalog() async throws -> [Voice] {
+        let available = try await voices()
+        let saved = try await voices(savedOnly: true)
+        let savedIDs = Set(saved.map(\.id))
+        var ids: Set<String> = []
+        // Include newly saved voices if the account changes between the two reads.
+        return (saved + available).filter { ids.insert($0.id).inserted }.map { voice in
+            var classified = voice
+            classified.isSaved = savedIDs.contains(voice.id)
+            return classified
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
     func sharedVoices(search: String = "", language: String? = nil, category: String? = nil, page: Int = 0) async throws -> SharedVoicePage {
         guard page >= 0 else { throw AppFailure(L("The API request is invalid.")) }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.1 — 2026-10-12
+
+- Fixed My Voices showing every accessible voice, including unsaved defaults. Membership now comes from the paginated `voice_type=saved` API query. Saved library voices and defaults explicitly added to a collection remain in My Voices.
+- Added My Voices, ElevenLabs Voices, and All voices filters to the shared TTS, Voice Changer, and batch selector. Changing source selects a visible voice or clears the selection when the list is empty.
+- Added a separate available-voices view alongside shared-library discovery. Voice lists refresh on launch; cached membership remains separate from edit/delete ownership permissions.
+- Added API and application regression tests for source separation, pagination, old caches, search, and empty lists.
+
 ## 2.0 — 2026-10-12
 
 ### Added

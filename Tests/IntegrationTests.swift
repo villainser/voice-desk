@@ -85,6 +85,33 @@ struct IntegrationTests {
         try expect(!model.recorder.isRecording && !model.recorder.isRequestingPermission, "Constructing AppModel must not request microphone access")
         ok("credential-free initialization and missing-key navigation")
 
+        let voiceModel = AppModel()
+        var mine = Voice(voice_id: "mine", name: "Personal clone"); mine.isSaved = true; mine.category = "cloned"; mine.is_owner = true
+        var added = Voice(voice_id: "added", name: "Saved narrator"); added.isSaved = true; added.category = "professional"; added.is_owner = false
+        var external = Voice(voice_id: "default", name: "ElevenLabs default"); external.isSaved = false; external.category = "premade"
+        voiceModel.applyVoiceCatalog([mine, added, external])
+        try expect(voiceModel.visibleVoices.map(\.id) == ["mine", "added"] && voiceModel.pickerVoices.map(\.id) == ["mine", "added"], "My Voices and default picker must exclude unsaved defaults")
+        voiceModel.voiceSearch = "narrator"
+        try expect(voiceModel.visibleVoices.map(\.id) == ["added"], "text search stays within saved voices")
+        voiceModel.voiceSearch = ""; voiceModel.voiceCategory = "professional"
+        try expect(voiceModel.visibleVoices.map(\.id) == ["added"] && !voiceModel.voiceCategories.contains("premade"), "category filtering stays within saved voices")
+        for page in [WorkspacePage.speech, .changer, .batch] {
+            voiceModel.page = page
+            voiceModel.setVoiceSource(.elevenLabs)
+            try expect(voiceModel.pickerVoices.map(\.id) == ["default"] && voiceModel.voiceID == "default", "external source replaces the hidden selection in every generation workspace")
+            voiceModel.setVoiceSource(.saved)
+            try expect(voiceModel.voiceID == "mine", "switching back restores a valid saved selection")
+        }
+        voiceModel.setVoiceSource(.all)
+        try expect(voiceModel.pickerVoices.count == 3, "explicit all-voices option")
+        voiceModel.chooseVoice(external)
+        try expect(voiceModel.voiceSource == .elevenLabs, "selecting from a library aligns the source")
+        voiceModel.applyVoiceCatalog([mine, added, external])
+        try expect(voiceModel.voiceID == "default", "refresh preserves the selected voice")
+        voiceModel.applyVoiceCatalog([external]); voiceModel.setVoiceSource(.saved)
+        try expect(voiceModel.voiceID.isEmpty && voiceModel.pickerVoices.isEmpty, "empty saved filter must not keep a hidden external selection")
+        ok("voice source selection across TTS, Voice Changer, batch, search, and empty lists")
+
         model.page = .batch
         model.importJobs([first, second])
         try await finished(model)

@@ -12,14 +12,14 @@ Native AAC/M4A tests need access to the macOS audio encoding service. A restrict
 
 ## Automated coverage
 
-The complete runner passed on 2026-10-11: 43 named API/core/integration/media test groups, the localization harness, and the catalog audit. These results use mock transports and local fixtures, not live ElevenLabs generation.
+The suites passed on 2026-10-12: 45 named API/core/integration/media test groups, the localization harness, and the catalog audit. These results use mock transports and local fixtures, not live ElevenLabs generation.
 
 | Suite | Verification | Result |
 | --- | --- | --- |
 | [CoreTests](Tests/CoreTests.swift) | 13 groups: Unicode segmentation, encodings, output names, API error stop, resumable segments, source changes, no overwrite, pagination, credential redaction, real MP3/M4A/WAV decoding and encoding, expression request parameters, Voice Changer multipart, typed text | Passed with mocks and synthetic audio |
-| [APITests](Tests/APITests.swift) | 11 groups: model/language metadata, account allowance, voices and ownership, shared search and add, edit/delete gating, cloning/design, Unicode TTS language parameters, transcription/isolation/effects, history, dubbing lifecycle and signed downloads, error and identifier handling | Passed with mocked responses |
+| [APITests](Tests/APITests.swift) | 12 groups: model/language metadata, account allowance, voices and ownership, saved membership and pagination, shared search and add, edit/delete gating, cloning/design, Unicode TTS language parameters, transcription/isolation/effects, history, dubbing lifecycle and signed downloads, error and identifier handling | Passed with mocked responses |
 | [MediaImportTests](Tests/MediaImportTests.swift) | 10 groups: encodings and multilingual content, SRT/VTT parsing, folder/multiple import, symlinks and limits, Finder item-provider decoding, WAV metadata, player load/seek/stop, permission denial, pending-permission cancellation | Passed with local fixtures and permission mocks |
-| [IntegrationTests](Tests/IntegrationTests.swift) | 9 groups: credential-free initialization, missing-key handling, import without generation, deduplication, recoverable output collisions, preservation of invalid-source errors, independent interface/speech language, model capability mapping, Voice Changer source/output protection, cancellation | Passed with a local observable model and denied network transport |
+| [IntegrationTests](Tests/IntegrationTests.swift) | 10 groups: credential-free initialization, missing-key handling, voice source filtering and selection, import without generation, deduplication, recoverable output collisions, preservation of invalid-source errors, independent interface/speech language, model capability mapping, Voice Changer source/output protection, cancellation | Passed with a local observable model and denied network transport |
 | [LocalizationTests](Tests/LocalizationTests.swift) | English/Polish lookup, immediate switching, preference storage, speech-language independence, placeholder formatting, missing-key fallback | Passed against native strings catalogs |
 | [Localization audit](Scripts/audit-localization.py) | Source-key coverage, matching catalogs, duplicate keys, and format argument consistency | Run by `test.sh` |
 
@@ -51,6 +51,14 @@ Observed on macOS:
 - Text to Speech, Voice Changer, Settings, and Batch Jobs rendered in dark appearance. An oversized text-editor layout was found visually, constrained to the available detail area, rebuilt, and checked again.
 
 The app icon was visible inside the running application and in Finder. Text to Speech was also visually checked in light appearance using an Aqua-only test bundle; the shipping bundle continues to follow the system appearance. Hardware audio, live generation, and the remaining manual checks below are not implied by these UI results.
+
+## Voice filtering regression — 2.0.1
+
+API fixtures distinguish unsaved defaults, owned clones, saved community voices, and defaults explicitly saved to a collection. Tests cover saved pagination, merging newly saved voices, unknown membership in old caches, a failed saved lookup, and unchanged ownership restrictions. AppModel tests cover source changes in TTS, Voice Changer, and Batch Jobs, search/category filtering, empty lists, and selection alignment.
+
+The updated shipping app also completed a read-only live refresh. Native UI checks confirmed separate saved and unsaved voice menus with no shared entries, matching My Voices and ElevenLabs workspaces, and a source selector that changes the selected voice to a visible entry. The previous voice was restored after verification. No paid generation was performed.
+
+All 45 named groups and the localization harness passed. The catalog audit passed with 396 matching English/Polish entries. CoreAudio codec tests initially failed under the filesystem sandbox and passed when rerun with access to macOS audio services; those tests use synthetic local audio. The arm64 release build and code-signature validation passed.
 
 ## Manual checks before a release
 
