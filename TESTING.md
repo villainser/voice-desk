@@ -29,9 +29,12 @@ The API tests validate the implemented request and response contracts. They do n
 
 ## Live-service and hardware boundary
 
+On 2026-10-12, the shipping application loaded its existing Keychain item and successfully fetched `/v1/models`, `/v2/voices`, and `/v1/user/subscription`. The UI displayed the returned models, voice metadata and subscription values. Downloading an existing voice preview succeeded, and the native player entered playback with a valid duration. No generation request was involved.
+
+
 No billable live generation, cloning, voice design, transformation, transcription, isolation, sound-effect, or dubbing test was performed for this version's automated suite. Voice quality, cross-language pronunciation, retained delivery, and translated output therefore remain unverified against the live service.
 
-The media tests do not record from a physical microphone or confirm audible playback through speakers. They test permission and cancellation state with injected responses, and playback loading/seeking with local audio. Remote voice-preview availability, physical microphone selection, and output-device behavior require manual checks.
+The media tests do not record from a physical microphone or confirm audible playback through speakers. They test permission and cancellation state with injected responses, and playback loading/seeking with local audio. One existing remote preview was downloaded and entered playback in the native UI. Physical microphone selection, audible speaker output, and other preview URLs remain outside that check.
 
 Keychain behavior is implemented through the native Security framework. The automated suite does not modify a real saved credential. Interactive add, replace, removal, and any macOS Keychain prompts should be checked using a disposable test credential.
 
